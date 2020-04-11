@@ -13,8 +13,8 @@ use actix::{Actor, Addr};
 use actix_web::{middleware, web, App, Error, HttpRequest, HttpResponse, HttpServer};
 use actix_web_actors::ws;
 
-use rustls::internal::pemfile::{certs, rsa_private_keys};
-use rustls::{NoClientAuth, ServerConfig};
+//use rustls::internal::pemfile::{certs, rsa_private_keys};
+//use rustls::{NoClientAuth, ServerConfig};
 use std::fs::File;
 use std::io::BufReader;
 
@@ -29,13 +29,13 @@ async fn main() {
 
     let lobby_mgr_addr = LobbyManager::new().start();
 
-    let mut config = ServerConfig::new(NoClientAuth::new());
-    let cert_file = &mut BufReader::new(File::open("server.crt").unwrap());
-    let key_file = &mut BufReader::new(File::open("server.pem").unwrap());
-    let cert_chain = certs(cert_file).unwrap();
-    let mut keys = rsa_private_keys(key_file).unwrap();
-    config.set_single_cert(cert_chain, keys.remove(0)).unwrap();
-
+    /*    let mut config = ServerConfig::new(NoClientAuth::new());
+        let cert_file = &mut BufReader::new(File::open("server.crt").unwrap());
+        let key_file = &mut BufReader::new(File::open("server.pem").unwrap());
+        let cert_chain = certs(cert_file).unwrap();
+        let mut keys = rsa_private_keys(key_file).unwrap();
+        config.set_single_cert(cert_chain, keys.remove(0)).unwrap();
+    */
     println!("Running on {}.", BIND_ADDR);
     let _close_res = HttpServer::new(move || {
         App::new()
@@ -48,7 +48,8 @@ async fn main() {
             .data(lobby_mgr_addr.clone())
             .service(web::resource("/ws/").to(websocket_route))
     })
-    .bind_rustls(BIND_ADDR, config)
+    //    .bind_rustls(BIND_ADDR, config)
+    .bind(BIND_ADDR)
     .unwrap()
     .run()
     .await;
@@ -68,12 +69,3 @@ async fn websocket_route(
         stream,
     )
 }
-
-// impl Stream
-
-// struct PlayerInfo(Addr<WsClientConnection>);
-// struct PlayingInfo {
-//     my_info: PlayerInfo,
-//     opp_info: PlayerInfo,
-//     game_info: game::GameInfo,
-// }
