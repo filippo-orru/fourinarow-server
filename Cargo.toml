@@ -1,0 +1,21 @@
+[package]
+name = "fourinarow-server"
+version = "0.6.0"
+authors = ["Filippo Orrù <filippoorru@hotmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+#tungstenite = "0.10.1"
+#ws = "0.9.1"
+actix-rt = "1.0.0"
+actix = "0.9.0"
+actix-web = {version = "2.0.0", features = ["rustls"] }
+actix-web-actors = "2.0.0"
+tokio = "0.2.14"
+
+rustls = "0.16"
+env_logger = "0.7.1"
+rand = "0.7.3"
+futures = "0.3.2"

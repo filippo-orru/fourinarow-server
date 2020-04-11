@@ -1,0 +1,211 @@
+use std::collections::HashMap;
+use std::net::{TcpListener, TcpStream};
+use std::sync::{
+    mpsc::{channel, Sender},
+    Arc, Mutex,
+};
+use std::thread::spawn;
+// use tungstenite::{protocol::WebSocket, server::accept, Message};
+use ws::{listen, Sender as WSSender};
+
+fn main() {
+    // let server = TcpListener::bind("127.0.0.1:40146").unwrap();
+
+    let lobby_mgr = Arc::new(Mutex::new(LobbyManager::new()));
+
+    let (lobby_send, lobby_recv) = channel();
+
+    listen("127.0.0.1:40146", |out| Lobby {}).expect("Error setting up socket.");
+
+    /*for stream in server.incoming() {
+        let lobby_mgr_mutex = lobby_mgr.clone();
+        spawn(move || {
+            let stream = stream.unwrap();
+            println!("Incoming connection from {:?}", stream.peer_addr());
+            let mut websocket = accept(stream).unwrap();
+            loop {
+                let msg = match websocket.read_message() {
+                    Ok(m) => m,
+                    Err(e) => {
+                        println!("Error: \"{:?}\". Closing connection.", e);
+                        return;
+                    }
+                };
+
+                let mut send = |msg: ServerMsg| {
+                    let s = msg.to_string();
+                    websocket.write_message(Message::from(s)).unwrap();
+                };
+
+                if let Ok(msg_string) = msg.into_text() {
+                    let maybe_client_msg = WSMessage::parse(msg_string);
+                    if let Some(client_msg) = maybe_client_msg {
+                        match client_msg {
+                            ClientMsg::Unspecific(u_msg) => match u_msg {
+                                ClientUnspecificMsg::RequestLobby => {
+                                    let my_lobby_mgr: &LobbyManager =
+                                        &*lobby_mgr_mutex.lock().unwrap();
+                                    let game_id = my_lobby_mgr.get_new();
+                                    send(ServerMsg::LobbyReturn(game_id));
+                                }
+                            },
+                            ClientMsg::Specific(game_id, s_msg) => match s_msg {
+                                ClientLobbyMsg::PlaceChip(row) => {
+                                    send(ServerMsg::PlaceChip(row));
+                                }
+                            },
+                        }
+                    }
+                }
+
+                // if msg.is_binary() || msg.is_text() {
+                //     println!("Received msg: {}", msg);
+                //     websocket
+                //         .write_message(Message::from(format!("You said: {}", msg)))
+                //         .unwrap();
+                // }
+            }
+        });
+    }*/
+}
+
+fn format_game_id(game_id: GameId) -> String {
+    format!("{}{}{}{}", game_id[0], game_id[1], game_id[2], game_id[3])
+}
+
+struct LobbyManager {
+    lobbies: HashMap<GameId, Lobby>,
+    // lobbies: Arc<Mutex<Vec<Lobby>>>,
+}
+impl LobbyManager {
+    pub fn new() -> Self {
+        LobbyManager {
+            lobbies: HashMap::new(),
+            // lobbies: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+    pub fn get_new(&self) -> GameId {
+        ['A', 'B', 'C', 'D']
+    }
+    pub fn send(&self, game_id: GameId, server_msg: ServerMsg) -> Option<()> {
+        if let Some(lobby) = self.lobbies.get(&game_id) {
+            // server_msg.to_string();
+            Some(())
+        } else {
+            None
+        }
+    }
+}
+
+struct Lobby {
+    // id: GameId,
+    // websocket: WebSocket<TcpStream>,
+    lobby_sender: Sender<Event>,
+    state: LobbyState,
+}
+enum Event {
+    Connect(WSSender),
+    Disconnect,
+}
+enum LobbyState {
+    Waiting,
+    Playing,
+}
+
+/*struct Player {
+    // websocket: WebSocket<TcpStream>,
+    sender: Sender<ClientMsg>,
+    recv: Receiver<ServerMsg>,
+}*/
+// type Player = (Sender<String>, Receiver<String>);
+
+/*struct PlayingState {
+    player1: Player,
+    player2: Player,
+}*/
+
+impl Lobby {
+    pub fn create() -> (Sender<ServerMsg>) {
+        let (smsg_send, smsg_recv) = channel();
+        let (cmsg_send, cmsg_recv) = channel();
+        let me = Self {
+            state: LobbyState::Waiting(Player {
+                // websocket: player_one,
+                sender: cmsg_send,
+                recv: smsg_recv,
+            }),
+        };
+        me.run();
+        (smsg_send, cmsg_recv)
+    }
+    pub fn run(self) {
+        spawn(|| {});
+    }
+}
+
+type GameId = [char; 4];
+enum WSMessage {
+    ServerMsg(ServerMsg),
+    ClientMsg(ClientMsg),
+}
+enum ServerMsg {
+    LobbyReturn(GameId),
+    PlaceChip(usize),
+}
+impl ServerMsg {
+    pub fn to_string(self) -> String {
+        use ServerMsg::*;
+        match self {
+            LobbyReturn(game_id) => {
+                let game_id_str = format_game_id(game_id);
+                format!("LOBBY:{}", game_id_str)
+            }
+            PlaceChip(row) => format!("PC:{}", row),
+        }
+    }
+}
+
+enum ClientMsg {
+    Unspecific(ClientUnspecificMsg),
+    Specific(GameId, ClientLobbyMsg),
+}
+enum ClientUnspecificMsg {
+    RequestLobby,
+}
+enum ClientLobbyMsg {
+    PlaceChip(usize),
+}
+
+impl WSMessage {
+    pub fn parse(s: String) -> Option<ClientMsg> {
+        use ClientMsg::*;
+        use ClientUnspecificMsg::*;
+        if s.starts_with("REQ") {
+            Some(Unspecific(RequestLobby))
+        } else {
+            use ClientLobbyMsg::*;
+            if s.len() < 6 {
+                return None;
+            }
+            let s_chars: Vec<char> = s.chars().collect();
+            let mut game_id: GameId = ['A'; 4];
+            for i in 0..4 {
+                game_id[i] = s_chars[i];
+            }
+            let s: String = s[0..4].to_string();
+            if s.starts_with("PC") {
+                if let Some(row) = s.get(2..3) {
+                    if let Ok(row_int) = row.parse::<usize>() {
+                        Some(Specific(game_id, PlaceChip(row_int)))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+    }
+}

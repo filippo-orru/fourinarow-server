@@ -1,0 +1,278 @@
+use rand::{thread_rng, Rng};
+use std::collections::HashMap;
+use std::fmt;
+use std::sync::{
+    mpsc::{channel, Receiver, Sender},
+    Arc, Mutex,
+};
+use std::thread::{sleep, spawn};
+use std::time::{Duration, Instant};
+use ws::{listen, CloseCode, Handler, Message, Result, Sender as WSender};
+
+const BIND_ADDR: &str = "0.0.0.0:40146";
+// type GameId = [char; 4];
+
+fn main() {
+    println!("Binding to {}", BIND_ADDR);
+
+    let player_map = Arc::new(Mutex::new(HashMap::<GameId, PlayerMapEntry>::new()));
+    let prune_player_map_clone = player_map.clone();
+    spawn(move || loop {
+        sleep(Duration::from_secs(60));
+        if let Ok(map) = &mut prune_player_map_clone.lock() {
+            let mut keys = Vec::new();
+            for (key, player_map_entry) in map.iter() {
+                if player_map_entry.inserted.elapsed() > Duration::from_secs(120) {
+                    keys.push(key.clone());
+                }
+            }
+            for key in keys {
+                map.remove(&key);
+            }
+        }
+    });
+    listen(BIND_ADDR, |sender| Player {
+        sender,
+        state: Arc::new(Mutex::new(PlayerState::Idle)),
+        players_map: player_map.clone(),
+    })
+    .expect("Failed to bind to addr");
+}
+
+// struct Lobby {
+//     player: Player,
+//     state: OpponentState,
+// }
+// enum OpponentState {
+//     Waiting,
+//     Playing(Player),
+// }
+
+struct Player {
+    players_map: Arc<Mutex<HashMap<GameId, PlayerMapEntry>>>,
+
+    sender: WSender,
+    state: Arc<Mutex<PlayerState>>,
+}
+
+impl Player {
+    fn spawn_process(&self, message_receiver: Receiver<PlayerMessage>) {
+        let my_ws_sender = self.sender.clone();
+        let state_locked = self.state.clone();
+        spawn(move || loop {
+            if let Ok(player_msg) = message_receiver.recv_timeout(Duration::from_secs(8)) {
+                use PlayerMessage::*;
+                my_ws_sender
+                    .send(match player_msg {
+                        PlaceChip(row) => format!("PC:{}", row),
+                        Leave => "OPPONENT_LEFT".to_owned(),
+                        Joined => {
+                            let state = &mut *state_locked.lock().unwrap();
+                            if let PlayerState::InLobby(id, sender) = state {
+                                *state = PlayerState::Playing(*id, sender.clone());
+                            }
+                            "OPPONENT_JOINED".to_owned()
+                        }
+                    })
+                    .unwrap();
+            }
+        });
+    }
+    fn send<M>(&self, msg: M) -> Result<()>
+    where
+        M: Into<Message>,
+    {
+        let m = msg.into();
+        if let Ok(txt) = m.as_text() {
+            println!("<< \"{}\"", txt);
+        }
+        self.sender.send(m)
+    }
+}
+
+impl Handler for Player {
+    fn on_message(&mut self, message: Message) -> Result<()> {
+        println!(">> {:?}", message.as_text());
+        let ok = Ok(());
+        let mut send_confirmation = false;
+        if let Message::Text(text) = message {
+            let players_map = &mut self.players_map.lock().unwrap();
+            let state = &mut *self.state.lock().unwrap();
+            if text.starts_with("HELLO") {
+                if let PlayerState::Idle = state {
+                    let new_lobby_id = GameId::generate(&players_map);
+                    let (my_msg_sender, opp_msg_recv) = channel();
+                    let (opp_msg_sender, my_msg_recv) = channel();
+                    // let my_channels = PlayerChannels {
+                    //     message_sender: my_msg_sender,
+                    //     message_receiver: my_msg_recv,
+                    // };
+                    let me_as_opponent_channels = PlayerMapEntry {
+                        inserted: Instant::now(),
+                        channels: PlayerChannels {
+                            message_sender: opp_msg_sender,
+                            message_receiver: opp_msg_recv,
+                        },
+                    };
+                    players_map.insert(new_lobby_id, me_as_opponent_channels);
+                    self.spawn_process(my_msg_recv);
+                    *state = PlayerState::InLobby(new_lobby_id, my_msg_sender);
+
+                    if self.send(format!("OK:{}", new_lobby_id)).is_err() {
+                        let _ = self.sender.close(CloseCode::Abnormal);
+                    }
+                    // println!("Players map: {:?}", players_map);
+                }
+            } else if text.starts_with("JOIN:") {
+                if let PlayerState::Idle = state {
+                    if text.len() != 5 + 4 {
+                        let _ = self.send("INVALID_CODE");
+                        return ok;
+                    }
+                    let game_id = GameId::parse(&text[5..5 + 4]);
+                    if let Some(player_map_entry) = players_map.remove(&game_id) {
+                        let (sender, recv) = player_map_entry.deconstruct();
+                        self.spawn_process(recv);
+                        if sender.send(PlayerMessage::Joined).is_err() {
+                            let _ = self.sender.close(CloseCode::Abnormal);
+                        }
+                        *state = PlayerState::Playing(game_id, sender);
+                        send_confirmation = true;
+                    } else {
+                        println!(
+                            "Couldn't fulfill join request: Map is missing game id ({})",
+                            game_id
+                        );
+                        let _ = self.send("LOBBY_NOT_FOUND");
+                        // println!("Players map: {:?}", players_map);
+                    }
+                }
+            } else if text.starts_with("LEAVE") {
+                match state {
+                    PlayerState::Playing(_, my_sender) | PlayerState::InLobby(_, my_sender) => {
+                        if my_sender.send(PlayerMessage::Leave).is_err() {
+                            let _ = self.sender.close(CloseCode::Abnormal);
+                        }
+                        *state = PlayerState::Idle;
+                        send_confirmation = true;
+                    }
+                    _ => {}
+                }
+            } else if text.starts_with("PC:") {
+                if let PlayerState::Playing(_, my_sender) = state {
+                    if text.len() != 4 {
+                        return ok;
+                    }
+                    let row = if let Ok(r) = text[3..4].parse::<usize>() {
+                        r
+                    } else {
+                        return ok;
+                    };
+                    if row > 7 {
+                        return ok;
+                    }
+                    if my_sender.send(PlayerMessage::PlaceChip(row)).is_err() {
+                        let _ = self.sender.close(CloseCode::Abnormal);
+                    }
+                    // self.send("OK");
+                    send_confirmation = true;
+                }
+            }
+            if send_confirmation && self.send("OK").is_err() {
+                let _ = self.sender.close(CloseCode::Abnormal);
+            }
+        }
+        ok
+    }
+
+    fn on_close(&mut self, _: ws::CloseCode, _: &str) {
+        use PlayerState::*;
+        let state = &*self.state.lock().unwrap();
+        match state {
+            Playing(id, sender) | InLobby(id, sender) => {
+                let _ = sender.send(PlayerMessage::Leave);
+
+                let players_map = &mut self.players_map.lock().unwrap();
+                players_map.remove(id);
+            }
+            _ => {}
+        }
+    }
+}
+
+const VALID_GAME_ID_CHARS: &str = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+const GAME_ID_LEN: usize = 4;
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+struct GameId {
+    inner: [char; 4],
+}
+impl GameId {
+    pub fn generate(map: &HashMap<GameId, PlayerMapEntry>) -> GameId {
+        let mut ret = Self::generate_inner();
+
+        while map.contains_key(&ret) {
+            ret = Self::generate_inner();
+        }
+        ret
+    }
+    fn generate_inner() -> GameId {
+        let abc = VALID_GAME_ID_CHARS.chars().collect::<Vec<_>>();
+        let mut rands: [usize; GAME_ID_LEN] = [0; GAME_ID_LEN];
+        for rand in rands.iter_mut() {
+            *rand = thread_rng().gen_range(0, VALID_GAME_ID_CHARS.len());
+        }
+        GameId {
+            inner: [abc[rands[0]], abc[rands[1]], abc[rands[2]], abc[rands[3]]],
+        }
+    }
+    fn parse(text: &str) -> GameId {
+        let chars = text.chars().collect::<Vec<char>>();
+        GameId {
+            inner: [chars[0], chars[1], chars[2], chars[3]],
+        }
+    }
+}
+impl fmt::Display for GameId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}{}{}{}",
+            self.inner[0], self.inner[1], self.inner[2], self.inner[3]
+        )
+    }
+}
+
+#[derive(Debug)]
+enum PlayerState {
+    Idle,
+    InLobby(GameId, Sender<PlayerMessage>),
+    Playing(GameId, Sender<PlayerMessage>),
+}
+
+#[derive(Debug)]
+struct PlayerMapEntry {
+    channels: PlayerChannels,
+    inserted: Instant,
+}
+impl PlayerMapEntry {
+    fn deconstruct(self) -> (Sender<PlayerMessage>, Receiver<PlayerMessage>) {
+        self.channels.deconstruct()
+    }
+}
+
+#[derive(Debug)]
+struct PlayerChannels {
+    message_sender: Sender<PlayerMessage>,
+    message_receiver: Receiver<PlayerMessage>,
+}
+impl PlayerChannels {
+    fn deconstruct(self) -> (Sender<PlayerMessage>, Receiver<PlayerMessage>) {
+        (self.message_sender, self.message_receiver)
+    }
+}
+#[derive(Debug)]
+enum PlayerMessage {
+    PlaceChip(usize),
+    Leave,
+    Joined,
+}
