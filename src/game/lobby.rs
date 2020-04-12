@@ -1,11 +1,13 @@
-use crate::client_conn::ClientConnection;
-use crate::client_state::ClientStateMessage;
-use crate::game::{GameId, GameInfo, Player};
-use crate::lobby_mgr::{LobbyManager, LobbyManagerMsg};
-use crate::msg::*;
+use super::client_conn::ClientConnection;
+use super::client_state::ClientStateMessage;
+use super::game_info::{GameId, GameInfo, Player};
+use super::lobby_mgr::{LobbyManager, LobbyManagerMsg};
+use super::msg::*;
 
 use actix::*;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+const LOBBY_TIMEOUT_S: u64 = 5 * 60;
 
 pub enum LobbyState {
     OnePlayer(Addr<ClientConnection>),
@@ -32,6 +34,7 @@ pub struct Lobby {
     game_id: GameId,
     lobby_mgr_addr: Addr<LobbyManager>,
     game_state: LobbyState,
+    last_hb: Instant,
 }
 
 impl Handler<ClientLobbyMessageNamed> for Lobby {
@@ -41,6 +44,8 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
         msg_named: ClientLobbyMessageNamed,
         ctx: &mut Self::Context,
     ) -> Self::Result {
+        self.last_hb = Instant::now();
+
         use ClientLobbyMessage::*;
         match msg_named.msg {
             PlayerJoined(client_addr) => {
@@ -56,6 +61,7 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                 }
             }
             PlayerLeaving => {
+                println!("Lobby: forwarding Leave message to lobby manager.");
                 self.lobby_mgr_addr
                     .do_send(LobbyManagerMsg::CloseLobbyMsg(self.game_id));
                 match &self.game_state {
@@ -104,18 +110,15 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
 
 pub enum LobbyMessage {
     GameStart,
-    Shutdown,
-}
-
-impl Message for LobbyMessage {
-    type Result = Result<(), ()>;
+    LobbyClose,
 }
 
 impl Handler<LobbyMessage> for Lobby {
     type Result = Result<(), ()>;
     fn handle(&mut self, msg: LobbyMessage, ctx: &mut Self::Context) -> Self::Result {
         match msg {
-            LobbyMessage::Shutdown => {
+            LobbyMessage::LobbyClose => {
+                println!("Lobby ({}): closing.", self.game_id);
                 match self.game_state {
                     LobbyState::TwoPlayers(_, ref host_addr, ref client_addr) => {
                         host_addr.do_send(ServerMessage::LobbyClosing);
@@ -145,14 +148,15 @@ impl Handler<LobbyMessage> for Lobby {
 
 impl Lobby {
     pub fn new(
-        id: GameId,
+        game_id: GameId,
         lobby_mgr_addr: Addr<LobbyManager>,
         host_addr: Addr<ClientConnection>,
     ) -> Lobby {
         Lobby {
-            game_id: id,
+            game_id,
             lobby_mgr_addr,
             game_state: LobbyState::OnePlayer(host_addr),
+            last_hb: Instant::now(),
         }
     }
 }
@@ -160,9 +164,19 @@ impl Lobby {
 impl Actor for Lobby {
     type Context = Context<Self>;
 
-    fn started(&mut self, _: &mut Self::Context) {
-        if let LobbyState::OnePlayer(host_addr) = &self.game_state {
-            host_addr.do_send(ServerMessage::LobbyResponse(self.game_id));
-        }
+    fn started(&mut self, ctx: &mut Self::Context) {
+        ctx.run_interval(
+            Duration::from_secs(5),
+            |act: &mut Self, ctx: &mut Self::Context| {
+                if act.last_hb.elapsed() > Duration::from_secs(LOBBY_TIMEOUT_S) {
+                    println!("Lobby: Timed out. Closing.");
+                    ctx.notify(LobbyMessage::LobbyClose);
+                }
+            },
+        );
     }
+}
+
+impl Message for LobbyMessage {
+    type Result = Result<(), ()>;
 }

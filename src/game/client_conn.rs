@@ -1,6 +1,6 @@
-use crate::client_state::*;
-use crate::lobby_mgr::LobbyManager;
-use crate::msg::*;
+use super::client_state::*;
+use super::lobby_mgr::LobbyManager;
+use super::msg::*;
 
 use actix::*;
 use actix_web_actors::ws;
@@ -29,8 +29,8 @@ impl ClientConnection {
             //&mut WsClientConnection
             //: &mut ws::WebsocketContext<WsClientConnection>
             if act.hb.elapsed().as_secs() >= HB_TIMEOUT {
-                println!("Client timed out");
-                act.client_state_addr.do_send(ClientStateMessage::Shutdown);
+                // println!("Client timed out");
+                act.client_state_addr.do_send(ClientStateMessage::Timeout);
 
                 ctx.stop();
 
@@ -52,17 +52,22 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ClientConnection 
         };
         match ws_msg {
             ws::Message::Ping(ws_msg) => {
+                // println!("<ping>");
                 self.hb = Instant::now();
                 ctx.pong(&ws_msg);
             }
             ws::Message::Pong(_) => {
+                // println!("<pong>");
                 self.hb = Instant::now();
             }
             ws::Message::Binary(_) => println!("Unexpected binary"),
             ws::Message::Close(_) => {
+                println!("ClientConn: client disconnected.");
+                self.client_state_addr.do_send(PlayerMessage::Leaving);
                 ctx.stop();
             }
             ws::Message::Continuation(_) => {
+                println!("ClientConn: got continuation (??) Stopping");
                 ctx.stop();
             }
             ws::Message::Nop => (),
@@ -73,18 +78,17 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ClientConnection 
                     self.client_state_addr
                         .send(player_msg)
                         .into_actor(self)
-                        .then(|msg_res, _, _| {
-                            if let Ok(res) = msg_res {
-                                if res.is_err() {
-                                    println!("Invalid msg I think");
-                                }
-                            } else {
-                                println!("Failed to send message to client state");
+                        .then(|msg_res, _, ctx: &mut Self::Context| {
+                            if msg_res.is_err() {
+                                ctx.notify(ServerMessage::Error(Some(SrvMsgError::Internal)));
+                                println!("ClientConn: Failed to send message to client state");
+                                ctx.stop();
                             }
                             fut::ready(())
                         })
                         .wait(ctx);
                 } else {
+                    ctx.notify(ServerMessage::Error(Some(SrvMsgError::InvalidMessage)));
                     println!("  ## -> Invalid message!");
                 }
             }

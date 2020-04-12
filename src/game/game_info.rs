@@ -1,17 +1,17 @@
-use crate::lobby_mgr::LobbyMap;
-use crate::msg::SrvMsgError;
+use super::lobby_mgr::LobbyMap;
+use super::msg::SrvMsgError;
 
 use rand::{thread_rng, Rng};
 use std::fmt;
 
 pub const FIELD_SIZE: usize = 7;
-pub const GAME_ID_LEN: usize = 4;
+pub const GAME_ID_LEN: usize = 6;
 
-const VALID_GAME_ID_CHARS: &str = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+const VALID_GAME_ID_CHARS: &str = "ABCDEFGHJKLMNOPQRSTUXYZ";
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct GameId {
-    inner: [char; 4],
+    inner: [char; GAME_ID_LEN],
 }
 impl GameId {
     pub fn generate(map: &LobbyMap) -> GameId {
@@ -24,20 +24,20 @@ impl GameId {
     }
     fn generate_inner() -> GameId {
         let abc = VALID_GAME_ID_CHARS.chars().collect::<Vec<_>>();
-        let mut rands: [usize; GAME_ID_LEN] = [0; GAME_ID_LEN];
-        for rand in rands.iter_mut() {
-            *rand = thread_rng().gen_range(0, VALID_GAME_ID_CHARS.len());
+        let mut rand_chars: [char; GAME_ID_LEN] = ['a'; GAME_ID_LEN];
+        for rand_char in rand_chars.iter_mut() {
+            *rand_char = abc[thread_rng().gen_range(0, VALID_GAME_ID_CHARS.len())];
         }
-        GameId {
-            inner: [abc[rands[0]], abc[rands[1]], abc[rands[2]], abc[rands[3]]],
-        }
+        GameId { inner: rand_chars }
     }
     pub fn parse(text: &str) -> Option<GameId> {
         let chars = text.chars().collect::<Vec<char>>();
-        if chars.len() == 4 {
-            Some(GameId {
-                inner: [chars[0], chars[1], chars[2], chars[3]],
-            })
+        if chars.len() == GAME_ID_LEN {
+            let mut inner = ['a'; GAME_ID_LEN];
+            for (i, c) in chars.iter().enumerate() {
+                inner[i] = *c;
+            }
+            Some(GameId { inner })
         } else {
             None
         }
@@ -45,11 +45,12 @@ impl GameId {
 }
 impl fmt::Display for GameId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}{}{}{}",
-            self.inner[0], self.inner[1], self.inner[2], self.inner[3]
-        )
+        use std::fmt::Write;
+        for c in self.inner.iter() {
+            f.write_char(*c)?;
+        }
+
+        fmt::Result::Ok(())
     }
 }
 

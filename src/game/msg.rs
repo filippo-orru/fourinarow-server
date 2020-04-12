@@ -1,7 +1,5 @@
-use crate::game::{GameId, GAME_ID_LEN};
+use super::game_info::{GameId, GAME_ID_LEN};
 use actix::prelude::*;
-
-
 
 #[derive(Debug, Clone, Copy)]
 pub enum ServerMessage {
@@ -17,12 +15,16 @@ pub enum ServerMessage {
 
 #[derive(Debug, Clone, Copy)]
 pub enum SrvMsgError {
-    GameNotStarted,
-    NotYourTurn,
-    GameAlreadyOver,
+    Internal,
+    InvalidMessage,
+    // GameAlreadyOver,
     AlreadyPlaying,
     LobbyNotFound,
+    LobbyFull,
     InvalidColumn,
+    NotInLobby,
+    NotYourTurn,
+    GameNotStarted,
 }
 
 impl ServerMessage {
@@ -51,11 +53,15 @@ impl SrvMsgError {
     fn serialize(self) -> String {
         use SrvMsgError::*;
         match self {
+            Internal => "Internal".to_owned(),
+            InvalidMessage => "InvalidMessage".to_owned(),
             GameNotStarted => "GameNotStarted".to_owned(),
             NotYourTurn => "NotYourTurn".to_owned(),
-            GameAlreadyOver => "GameAlreadyOver".to_owned(),
+            NotInLobby => "NotInLobby".to_owned(),
+            // GameAlreadyOver => "GameAlreadyOver".to_owned(),
             AlreadyPlaying => "AlreadyPlaying".to_owned(),
             LobbyNotFound => "LobbyNotFound".to_owned(),
+            LobbyFull => "LobbyFull".to_owned(),
             InvalidColumn => "InvalidColumn".to_owned(),
         }
     }

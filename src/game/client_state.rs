@@ -1,8 +1,8 @@
-use crate::client_conn::ClientConnection;
-use crate::game::*;
-use crate::lobby::*;
-use crate::lobby_mgr::*;
-use crate::msg::*;
+use super::client_conn::ClientConnection;
+use super::game_info::*;
+use super::lobby::*;
+use super::lobby_mgr::{self, *};
+use super::msg::*;
 
 use actix::*;
 
@@ -35,7 +35,7 @@ enum BacklinkState {
 pub enum ClientStateMessage {
     BackLink(Addr<ClientConnection>),
     OpponentLeaving,
-    Shutdown, // Triggered by client timeout
+    Timeout, // Triggered by client timeout
 }
 
 impl Handler<ClientStateMessage> for ClientState {
@@ -48,7 +48,8 @@ impl Handler<ClientStateMessage> for ClientState {
                     self.backlinked_state = BacklinkState::Linked(addr);
                 }
             }
-            Shutdown => {
+            Timeout => {
+                println!("ClientState: Client timed out.");
                 if let ClientConnState::InLobby(player, lobby_addr) = &self.conn_state {
                     lobby_addr.do_send(ClientLobbyMessageNamed {
                         sender: *player,
@@ -75,7 +76,6 @@ impl Handler<PlayerMessage> for ClientState {
 
         if let BacklinkState::Linked(ref client_conn_addr) = self.backlinked_state {
             match msg {
-                // OpponentJoining => ok,
                 PlaceChip(column) => {
                     if let ClientConnState::InLobby(player, lobby_addr) = &self.conn_state {
                         lobby_addr.do_send(ClientLobbyMessageNamed {
@@ -90,25 +90,36 @@ impl Handler<PlayerMessage> for ClientState {
                     }
                 }
                 Leaving => {
-                    if let ClientConnState::InLobby(player, lobby_addr) = &self.conn_state {
-                        lobby_addr.do_send(ClientLobbyMessageNamed {
-                            sender: *player,
-                            msg: ClientLobbyMessage::PlayerLeaving,
-                        });
-                    } else {
-                        client_conn_addr.do_send(ServerMessage::Okay);
+                    match &self.conn_state {
+                        ClientConnState::InLobby(player, lobby_addr) => {
+                            println!("ClientState: forwarding Leave message to lobby.");
+                            if lobby_addr
+                                .try_send(ClientLobbyMessageNamed {
+                                    sender: *player,
+                                    msg: ClientLobbyMessage::PlayerLeaving,
+                                })
+                                .is_err()
+                            {
+                                client_conn_addr
+                                    .do_send(ServerMessage::Error(Some(SrvMsgError::Internal)));
+                            }
+                        }
+                        ClientConnState::Idle => {
+                            client_conn_addr
+                                .do_send(ServerMessage::Error(Some(SrvMsgError::NotInLobby)));
+                        }
                     }
                     self.conn_state = ClientConnState::Idle;
+                    // ctx.stop();
                     ok
                 }
                 LobbyRequest => {
                     if let ClientConnState::Idle = &self.conn_state {
+                        let client_conn_addr = client_conn_addr.clone();
                         self.lobby_mgr
-                            .send(crate::lobby_mgr::LobbyRequest::NewLobby(
-                                client_conn_addr.clone(),
-                            ))
+                            .send(lobby_mgr::LobbyRequest::NewLobby(client_conn_addr.clone()))
                             .into_actor(self)
-                            .then(|res, act, _ctx| {
+                            .then(move |res, act, _ctx| {
                                 if let Ok(lobbyreq_resp_res) = res {
                                     if let Ok(lobbyreq_resp) = lobbyreq_resp_res {
                                         act.conn_state = ClientConnState::InLobby(
@@ -116,11 +127,13 @@ impl Handler<PlayerMessage> for ClientState {
                                             lobbyreq_resp.lobby_addr,
                                         );
                                     }
+                                } else {
+                                    client_conn_addr
+                                        .do_send(ServerMessage::Error(Some(SrvMsgError::Internal)));
                                 }
                                 fut::ready(())
                             })
                             .wait(ctx);
-                        // if let Ok(lobby_addr) = tx.into_actor().wait() {}
                         ok
                     } else {
                         client_conn_addr
@@ -131,7 +144,7 @@ impl Handler<PlayerMessage> for ClientState {
                 LobbyJoin(id) => {
                     if let ClientConnState::Idle = &self.conn_state {
                         self.lobby_mgr
-                            .send(crate::lobby_mgr::LobbyRequest::JoinLobby(
+                            .send(lobby_mgr::LobbyRequest::JoinLobby(
                                 id,
                                 client_conn_addr.clone(),
                             ))
