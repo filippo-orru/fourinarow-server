@@ -92,17 +92,129 @@ impl GameState {
 pub struct GameInfo {
     field: [[Option<Player>; FIELD_SIZE]; FIELD_SIZE],
     pub turn: Player,
+    pub winner: Option<WinnerInfo>,
 }
 impl GameInfo {
     pub fn new() -> Self {
-        let turn = [Player::One, Player::Two][thread_rng().gen_range(0, 2)];
-        println!("Created game. {:?} starts playing", turn);
         GameInfo {
             field: [[None; FIELD_SIZE]; FIELD_SIZE],
-            turn,
+            turn: [Player::One, Player::Two][thread_rng().gen_range(0, 2)],
+            winner: None,
         }
     }
-    pub fn place_chip(&mut self, column: usize, player: Player) -> Result<(), Option<SrvMsgError>> {
+    pub fn reset(&mut self) {
+        *self = Self::new();
+    }
+
+    pub fn check_win(&mut self) -> Option<Player> {
+        let maybe_winner = self.check_win_internal();
+        if let Some(winner) = maybe_winner {
+            self.winner = Some(WinnerInfo {
+                winner,
+                requesting_rematch: None,
+            });
+        }
+        maybe_winner
+    }
+
+    fn check_win_internal(&self) -> Option<Player> {
+        const RANGE: isize = FIELD_SIZE as isize - 4;
+        for r in (-RANGE)..(RANGE + 1) {
+            let mut last_player: Option<Player> = None;
+            let mut combo = 0;
+            for i in 0..FIELD_SIZE {
+                let i_isize = i as isize;
+                if i_isize + r < 0 || i_isize + r >= FIELD_SIZE as isize {
+                    last_player = None;
+                    combo = 0;
+                    continue;
+                }
+                let column = (i_isize + r) as usize;
+                let cell = self.field[column][i];
+                if cell.is_none() {
+                    combo = 0;
+                    last_player = None;
+                    continue;
+                } else if cell != last_player {
+                    combo = 0;
+                } else {
+                    last_player = cell;
+                }
+                combo += 1;
+                if combo >= 4 {
+                    return cell;
+                }
+            }
+
+            let mut last_player: Option<Player> = None;
+            let mut combo = 0;
+
+            for i in (0..FIELD_SIZE - 1).rev() {
+                let i_isize = i as isize;
+                if i_isize + r < 0 || i_isize + r >= FIELD_SIZE as isize {
+                    last_player = None;
+                    combo = 0;
+                    continue;
+                }
+                let real_y = FIELD_SIZE - 1 - i;
+                let column = (i_isize + r) as usize;
+                let cell = self.field[column][real_y];
+                if cell.is_none() {
+                    combo = 0;
+                    last_player = None;
+                    continue;
+                } else if cell != last_player {
+                    combo = 0;
+                } else {
+                    last_player = cell;
+                }
+                combo += 1;
+                if combo >= 4 {
+                    return cell;
+                }
+            }
+        }
+
+        let mut x_combo: Vec<(Option<Player>, usize)> = vec![];
+        let mut last_player: Option<Player> = None;
+        let mut combo = 0;
+        for column in &self.field {
+            for (y, cell) in column.iter().enumerate() {
+                let cell = *cell;
+                if cell.is_none() {
+                    combo = 0;
+                    last_player = None;
+                    x_combo[y] = (None, 0);
+                    continue;
+                } else if cell != last_player {
+                    combo = 0;
+                } else {
+                    last_player = cell;
+                }
+                combo += 1;
+
+                if combo >= 4 {
+                    return cell;
+                }
+
+                if cell != x_combo[y].0 {
+                    x_combo[y] = (cell, 0);
+                }
+                x_combo[y].1 += 1;
+
+                if x_combo[y].1 >= 4 {
+                    return x_combo[y].0;
+                }
+            }
+        }
+        None
+    }
+
+    pub fn place_chip(
+        &mut self,
+        column: usize,
+        player: Player,
+    ) -> Result<Option<Player>, Option<SrvMsgError>> {
         if column >= self.field.len() {
             return Err(Some(SrvMsgError::InvalidColumn));
         }
@@ -112,7 +224,7 @@ impl GameInfo {
                     if self.field[column][i] == None {
                         self.field[column][i] = Some(self.turn);
                         self.turn = self.turn.other();
-                        return Ok(());
+                        return Ok(self.check_win());
                     }
                 }
             } else {
@@ -126,4 +238,9 @@ impl GameInfo {
     fn is_column_full(&self, column: usize) -> bool {
         !self.field[column].contains(&None)
     }
+}
+
+pub struct WinnerInfo {
+    pub winner: Player,
+    pub requesting_rematch: Option<Player>,
 }

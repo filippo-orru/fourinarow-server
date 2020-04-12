@@ -18,14 +18,15 @@ pub enum ServerMessage {
 pub enum SrvMsgError {
     Internal,
     InvalidMessage,
-    // GameAlreadyOver,
-    AlreadyPlaying,
     LobbyNotFound,
     LobbyFull,
     InvalidColumn,
     NotInLobby,
     NotYourTurn,
+    GameAlreadyStarted,
     GameNotStarted,
+    GameNotOver,
+    // GameAlreadyOver,
 }
 
 impl ServerMessage {
@@ -57,14 +58,15 @@ impl SrvMsgError {
         match self {
             Internal => "Internal".to_owned(),
             InvalidMessage => "InvalidMessage".to_owned(),
-            GameNotStarted => "GameNotStarted".to_owned(),
             NotYourTurn => "NotYourTurn".to_owned(),
             NotInLobby => "NotInLobby".to_owned(),
-            // GameAlreadyOver => "GameAlreadyOver".to_owned(),
-            AlreadyPlaying => "AlreadyPlaying".to_owned(),
             LobbyNotFound => "LobbyNotFound".to_owned(),
             LobbyFull => "LobbyFull".to_owned(),
             InvalidColumn => "InvalidColumn".to_owned(),
+            GameNotStarted => "GameNotStarted".to_owned(),
+            GameAlreadyStarted => "GameAlreadyStarted".to_owned(),
+            GameNotOver => "GameNotOver".to_owned(),
+            // GameAlreadyOver => "GameAlreadyOver".to_owned(),
         }
     }
 }
@@ -106,7 +108,7 @@ impl PlayerMessage {
             }
         } else if s == "LEAVE" {
             return Some(Leaving);
-        } else if s =="PLAY_AGAIN" {
+        } else if s == "PLAY_AGAIN" {
             return Some(PlayAgainRequest);
         }
         None

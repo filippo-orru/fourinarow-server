@@ -74,14 +74,39 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                         leaving_addr.do_send(ServerMessage::Okay);
                     }
                     LobbyState::OnePlayer(host_addr) => {
-                        host_addr.do_send(ServerMessage::Okay);
+                        host_addr.do_send(ServerMessage::Error(Some(SrvMsgError::GameNotStarted)));
                     }
                 }
                 ctx.stop();
                 Ok(())
             }
             PlayAgainRequest => {
-                
+                match &self.game_state {
+                    LobbyState::TwoPlayers(game_info, host_addr, client_addr) => {
+                        let requesting_addr = msg_named.sender.select(host_addr, client_addr);
+                        let other_addr = msg_named.sender.other().select(host_addr, client_addr);
+                        if let Some(winner_info) = &game_info.winner {
+                            if let Some(already_requested) = winner_info.requesting_rematch {
+                                if already_requested == msg_named.sender {
+                                    // sender requested again, but okay :shrug:
+                                    requesting_addr.do_send(ServerMessage::Okay);
+                                } else {
+                                    // both have now requested -> rematch
+                                    requesting_addr.do_send(ServerMessage::Okay);
+                                    ctx.notify(LobbyMessage::GameStart);
+                                }
+                            }
+                        } else {
+                            // game not over yet
+                            requesting_addr
+                                .do_send(ServerMessage::Error(Some(SrvMsgError::GameNotOver)));
+                        }
+                    }
+                    LobbyState::OnePlayer(host_addr) => {
+                        host_addr.do_send(ServerMessage::Error(Some(SrvMsgError::GameNotStarted)));
+                    }
+                }
+                Ok(())
             }
             PlaceChip(column) => match self.game_state {
                 LobbyState::TwoPlayers(ref mut game_info, ref host_addr, ref client_addr) => {
@@ -135,9 +160,10 @@ impl Handler<LobbyMessage> for Lobby {
                 Ok(())
             }
             LobbyMessage::GameStart => {
-                if let LobbyState::TwoPlayers(game_state, host_addr, client_addr) = &self.game_state
+                if let LobbyState::TwoPlayers(game_state, host_addr, client_addr) =
+                    &mut self.game_state
                 {
-                    // game_state.turn =
+                    game_state.reset();
                     host_addr.do_send(ServerMessage::GameStart(game_state.turn == Player::One));
                     client_addr.do_send(ServerMessage::GameStart(game_state.turn == Player::Two));
                     Ok(())

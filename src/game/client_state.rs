@@ -85,7 +85,7 @@ impl Handler<PlayerMessage> for ClientState {
                         ok
                     } else {
                         client_conn_addr
-                            .do_send(ServerMessage::Error(Some(SrvMsgError::GameNotStarted)));
+                            .do_send(ServerMessage::Error(Some(SrvMsgError::NotInLobby)));
                         err
                     }
                 }
@@ -98,7 +98,7 @@ impl Handler<PlayerMessage> for ClientState {
                         ok
                     } else {
                         client_conn_addr
-                            .do_send(ServerMessage::Error(Some(SrvMsgError::GameNotStarted)));
+                            .do_send(ServerMessage::Error(Some(SrvMsgError::NotInLobby)));
                         err
                     }
                 }
@@ -150,7 +150,7 @@ impl Handler<PlayerMessage> for ClientState {
                         ok
                     } else {
                         client_conn_addr
-                            .do_send(ServerMessage::Error(Some(SrvMsgError::AlreadyPlaying)));
+                            .do_send(ServerMessage::Error(Some(SrvMsgError::GameAlreadyStarted)));
                         err
                     }
                 }
@@ -177,7 +177,7 @@ impl Handler<PlayerMessage> for ClientState {
                         ok
                     } else {
                         client_conn_addr
-                            .do_send(ServerMessage::Error(Some(SrvMsgError::AlreadyPlaying)));
+                            .do_send(ServerMessage::Error(Some(SrvMsgError::GameAlreadyStarted)));
                         err
                     }
                 }
