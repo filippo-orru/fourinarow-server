@@ -84,7 +84,6 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                 match &self.game_state {
                     LobbyState::TwoPlayers(game_info, host_addr, client_addr) => {
                         let requesting_addr = msg_named.sender.select(host_addr, client_addr);
-                        let other_addr = msg_named.sender.other().select(host_addr, client_addr);
                         if let Some(winner_info) = &game_info.winner {
                             if let Some(already_requested) = winner_info.requesting_rematch {
                                 if already_requested == msg_named.sender {
@@ -111,12 +110,19 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
             PlaceChip(column) => match self.game_state {
                 LobbyState::TwoPlayers(ref mut game_info, ref host_addr, ref client_addr) => {
                     match game_info.place_chip(column, msg_named.sender) {
-                        Ok(()) => {
+                        Ok(maybe_winner) => {
                             let placing_addr = msg_named.sender.select(host_addr, client_addr);
                             placing_addr.do_send(ServerMessage::Okay);
                             let other_addr =
                                 msg_named.sender.other().select(host_addr, client_addr);
                             other_addr.do_send(ServerMessage::PlaceChip(column));
+                            if let Some(winner) = maybe_winner {
+                                placing_addr
+                                    .do_send(ServerMessage::GameOver(msg_named.sender == winner));
+                                other_addr.do_send(ServerMessage::GameOver(
+                                    msg_named.sender.other() == winner,
+                                ));
+                            }
 
                             Ok(())
                         }

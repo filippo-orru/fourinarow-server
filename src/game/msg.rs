@@ -9,6 +9,7 @@ pub enum ServerMessage {
     OpponentJoining,
     LobbyResponse(GameId),
     GameStart(bool), // whether it's your or opponent's turn
+    GameOver(bool),  // whether you or opp. won
     LobbyClosing,
     Okay,
     Error(Option<SrvMsgError>),
@@ -39,6 +40,7 @@ impl ServerMessage {
             OpponentJoining => "OPP_JOINED".to_owned(),
             LobbyResponse(game_id) => format!("LOBBY_ID:{}", game_id),
             GameStart(your_turn) => format!("GAME_START:{}", if your_turn { "YOU" } else { "OPP" }),
+            GameOver(you_win) => format!("GAME_OVER:{}", if you_win { "YOU" } else { "OPP" }),
             LobbyClosing => "LOBBY_CLOSING".to_owned(),
             Okay => "OKAY".to_owned(),
             Error(maybe_msg) => {
