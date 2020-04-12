@@ -23,6 +23,7 @@ pub struct ClientLobbyMessageNamed {
 pub enum ClientLobbyMessage {
     PlayerJoined(Addr<ClientConnection>),
     PlayerLeaving,
+    PlayAgainRequest,
     PlaceChip(usize),
 }
 
@@ -79,7 +80,9 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                 ctx.stop();
                 Ok(())
             }
-
+            PlayAgainRequest => {
+                
+            }
             PlaceChip(column) => match self.game_state {
                 LobbyState::TwoPlayers(ref mut game_info, ref host_addr, ref client_addr) => {
                     match game_info.place_chip(column, msg_named.sender) {

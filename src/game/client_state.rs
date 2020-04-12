@@ -89,6 +89,19 @@ impl Handler<PlayerMessage> for ClientState {
                         err
                     }
                 }
+                PlayAgainRequest => {
+                    if let ClientConnState::InLobby(player, lobby_addr) = &self.conn_state {
+                        lobby_addr.do_send(ClientLobbyMessageNamed {
+                            sender: *player,
+                            msg: ClientLobbyMessage::PlayAgainRequest,
+                        });
+                        ok
+                    } else {
+                        client_conn_addr
+                            .do_send(ServerMessage::Error(Some(SrvMsgError::GameNotStarted)));
+                        err
+                    }
+                }
                 Leaving => {
                     match &self.conn_state {
                         ClientConnState::InLobby(player, lobby_addr) => {

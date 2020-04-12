@@ -5,7 +5,7 @@ use rand::{thread_rng, Rng};
 use std::fmt;
 
 pub const FIELD_SIZE: usize = 7;
-pub const GAME_ID_LEN: usize = 6;
+pub const GAME_ID_LEN: usize = 4;
 
 const VALID_GAME_ID_CHARS: &str = "ABCDEFGHJKLMNOPQRSTUXYZ";
 
