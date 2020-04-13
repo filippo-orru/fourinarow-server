@@ -213,7 +213,7 @@ impl Actor for Lobby {
         );
     }
 
-    fn stopping(&mut self, ctx: &mut Self::Context) -> Running {
+    fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
         println!("Lobby ({}): closing.", self.game_id);
         Running::Stop
     }

@@ -115,7 +115,7 @@ impl Handler<PlayerMessage> for ClientState {
                             {
                                 // client_conn_addr
                                 //     .do_send(ServerMessage::Error(Some(SrvMsgError::Internal)));
-                                /// TODO: Lobby is dead. Send okay or error here?
+                                // TODO: Lobby is dead. Send okay or error here?
                             }
                         }
                         ClientConnState::Idle => {

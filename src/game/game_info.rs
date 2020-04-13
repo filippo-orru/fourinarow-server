@@ -119,81 +119,68 @@ impl GameInfo {
 
     fn check_win_internal(&self) -> Option<Player> {
         const RANGE: isize = FIELD_SIZE as isize - 4;
-        for r in (-RANGE)..(RANGE + 1) {
-            let mut last_player: Option<Player> = None;
-            let mut combo = 0;
+        for r in (-RANGE)..=RANGE {
+            let mut combo: (Option<Player>, usize) = (None, 0);
             for i in 0..FIELD_SIZE {
                 let i_isize = i as isize;
                 if i_isize + r < 0 || i_isize + r >= FIELD_SIZE as isize {
-                    last_player = None;
-                    combo = 0;
+                    combo = (None, 0);
                     continue;
                 }
                 let column = (i_isize + r) as usize;
                 let cell = self.field[column][i];
                 if cell.is_none() {
-                    combo = 0;
-                    last_player = None;
+                    combo = (None, 0);
                     continue;
-                } else if cell != last_player {
-                    combo = 0;
-                } else {
-                    last_player = cell;
+                } else if cell != combo.0 {
+                    combo = (cell, 0);
                 }
-                combo += 1;
-                if combo >= 4 {
+
+                combo.1 += 1;
+                if combo.1 >= 4 {
                     return cell;
                 }
             }
 
-            let mut last_player: Option<Player> = None;
-            let mut combo = 0;
-
+            let mut combo: (Option<Player>, usize) = (None, 0);
             for i in (0..FIELD_SIZE - 1).rev() {
                 let i_isize = i as isize;
                 if i_isize + r < 0 || i_isize + r >= FIELD_SIZE as isize {
-                    last_player = None;
-                    combo = 0;
+                    combo = (None, 0);
                     continue;
                 }
                 let real_y = FIELD_SIZE - 1 - i;
                 let column = (i_isize + r) as usize;
                 let cell = self.field[column][real_y];
                 if cell.is_none() {
-                    combo = 0;
-                    last_player = None;
+                    combo = (None, 0);
                     continue;
-                } else if cell != last_player {
-                    combo = 0;
-                } else {
-                    last_player = cell;
+                } else if cell != combo.0 {
+                    combo = (cell, 0);
                 }
-                combo += 1;
-                if combo >= 4 {
+
+                combo.1 += 1;
+                if combo.1 >= 4 {
                     return cell;
                 }
             }
         }
 
-        let mut x_combo: Vec<(Option<Player>, usize)> = vec![];
-        let mut last_player: Option<Player> = None;
-        let mut combo = 0;
+        let mut x_combo: Vec<(Option<Player>, usize)> = vec![(None, 0); FIELD_SIZE];
+        let mut combo: (Option<Player>, usize) = (None, 0);
         for column in &self.field {
             for (y, cell) in column.iter().enumerate() {
                 let cell = *cell;
                 if cell.is_none() {
-                    combo = 0;
-                    last_player = None;
+                    combo = (None, 0);
                     x_combo[y] = (None, 0);
                     continue;
-                } else if cell != last_player {
-                    combo = 0;
-                } else {
-                    last_player = cell;
+                } else if cell != combo.0 {
+                    combo = (cell, 0);
                 }
-                combo += 1;
+                combo.1 += 1;
 
-                if combo >= 4 {
+                if combo.1 >= 4 {
                     return cell;
                 }
 
@@ -203,7 +190,7 @@ impl GameInfo {
                 x_combo[y].1 += 1;
 
                 if x_combo[y].1 >= 4 {
-                    return x_combo[y].0;
+                    return cell;
                 }
             }
         }
@@ -219,25 +206,38 @@ impl GameInfo {
             return Err(Some(SrvMsgError::InvalidColumn));
         }
         if player == self.turn {
-            if !self.is_column_full(column) {
-                for i in (0..FIELD_SIZE).rev() {
-                    if self.field[column][i] == None {
-                        self.field[column][i] = Some(self.turn);
-                        self.turn = self.turn.other();
-                        return Ok(self.check_win());
-                    }
+            for i in (0..FIELD_SIZE).rev() {
+                if self.field[column][i] == None {
+                    self.field[column][i] = Some(self.turn);
+                    self.turn = self.turn.other();
+                    // self.print_field();
+                    return Ok(self.check_win());
                 }
-            } else {
-                return Err(Some(SrvMsgError::InvalidColumn));
             }
+            Err(Some(SrvMsgError::InvalidColumn))
         } else {
-            return Err(Some(SrvMsgError::NotYourTurn));
+            Err(Some(SrvMsgError::NotYourTurn))
         }
-        Err(None)
+        // Err(None)
     }
-    fn is_column_full(&self, column: usize) -> bool {
-        !self.field[column].contains(&None)
+
+    #[allow(dead_code)]
+    fn print_field(&self) {
+        for column in self.field.iter() {
+            for cell in column {
+                match cell {
+                    None => print!("□"),
+                    Some(Player::One) => print!("X"),
+                    Some(Player::Two) => print!("O"),
+                }
+                print!(" ");
+            }
+            println!();
+        }
     }
+    // fn is_column_full(&self, column: usize) -> bool {
+    //     !self.field[column].contains(&None)
+    // }
 }
 
 pub struct WinnerInfo {
