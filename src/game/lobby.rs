@@ -80,19 +80,22 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                 Ok(())
             }
             PlayAgainRequest => {
-                match &self.game_state {
+                match &mut self.game_state {
                     LobbyState::TwoPlayers(game_info, host_addr, client_addr) => {
                         let requesting_addr = msg_named.sender.select(host_addr, client_addr);
-                        if let Some(winner_info) = &game_info.winner {
+                        if let Some(winner_info) = &mut game_info.winner {
                             if let Some(already_requested) = winner_info.requesting_rematch {
-                                if already_requested == msg_named.sender {
-                                    // sender requested again, but okay :shrug:
-                                    requesting_addr.do_send(ServerMessage::Okay);
-                                } else {
+                                requesting_addr.do_send(ServerMessage::Okay);
+                                if already_requested != msg_named.sender {
                                     // both have now requested -> rematch
-                                    requesting_addr.do_send(ServerMessage::Okay);
                                     ctx.notify(LobbyMessage::GameStart);
+                                } else {
+                                    // sender requested again, but okay :shrug:
+                                    // requesting_addr.do_send(ServerMessage::Okay);
                                 }
+                            } else {
+                                winner_info.requesting_rematch = Some(msg_named.sender);
+                                requesting_addr.do_send(ServerMessage::Okay);
                             }
                         } else {
                             // game not over yet
