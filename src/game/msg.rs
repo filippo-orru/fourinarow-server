@@ -4,7 +4,6 @@ use actix::prelude::*;
 #[derive(Debug, Clone, Copy)]
 pub enum ServerMessage {
     PlaceChip(usize),
-    ResetField,
     OpponentLeaving,
     OpponentJoining,
     LobbyResponse(GameId),
@@ -35,7 +34,6 @@ impl ServerMessage {
         use ServerMessage::*;
         match self {
             PlaceChip(row) => format!("PC:{}", row),
-            ResetField => "RESET_FIELD".to_owned(),
             OpponentLeaving => "OPP_LEAVING".to_owned(),
             OpponentJoining => "OPP_JOINED".to_owned(),
             LobbyResponse(game_id) => format!("LOBBY_ID:{}", game_id),

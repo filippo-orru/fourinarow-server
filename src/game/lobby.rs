@@ -62,19 +62,18 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                 }
             }
             PlayerLeaving => {
-                println!("Lobby: forwarding Leave message to lobby manager.");
                 self.lobby_mgr_addr
                     .do_send(LobbyManagerMsg::CloseLobbyMsg(self.game_id));
                 match &self.game_state {
                     LobbyState::TwoPlayers(_, host_addr, client_addr) => {
                         let leaving_addr = msg_named.sender.select(host_addr, client_addr);
                         let other_addr = msg_named.sender.other().select(host_addr, client_addr);
+                        other_addr.do_send(ClientStateMessage::Reset);
                         other_addr.do_send(ServerMessage::OpponentLeaving);
-                        other_addr.do_send(ClientStateMessage::OpponentLeaving);
                         leaving_addr.do_send(ServerMessage::Okay);
                     }
                     LobbyState::OnePlayer(host_addr) => {
-                        host_addr.do_send(ServerMessage::Error(Some(SrvMsgError::GameNotStarted)));
+                        host_addr.do_send(ServerMessage::Okay);
                     }
                 }
                 ctx.stop();
@@ -152,14 +151,17 @@ impl Handler<LobbyMessage> for Lobby {
     fn handle(&mut self, msg: LobbyMessage, ctx: &mut Self::Context) -> Self::Result {
         match msg {
             LobbyMessage::LobbyClose => {
-                println!("Lobby ({}): closing.", self.game_id);
                 match self.game_state {
                     LobbyState::TwoPlayers(_, ref host_addr, ref client_addr) => {
+                        host_addr.do_send(ClientStateMessage::Reset);
                         host_addr.do_send(ServerMessage::LobbyClosing);
+
+                        client_addr.do_send(ClientStateMessage::Reset);
                         client_addr.do_send(ServerMessage::LobbyClosing);
                     }
                     LobbyState::OnePlayer(ref host_addr) => {
-                        host_addr.do_send(ServerMessage::LobbyClosing)
+                        host_addr.do_send(ClientStateMessage::Reset);
+                        host_addr.do_send(ServerMessage::LobbyClosing);
                     }
                 }
                 ctx.stop();
@@ -204,11 +206,16 @@ impl Actor for Lobby {
             Duration::from_secs(5),
             |act: &mut Self, ctx: &mut Self::Context| {
                 if act.last_hb.elapsed() > Duration::from_secs(LOBBY_TIMEOUT_S) {
-                    println!("Lobby: Timed out. Closing.");
+                    println!("Lobby: Timed out.");
                     ctx.notify(LobbyMessage::LobbyClose);
                 }
             },
         );
+    }
+
+    fn stopping(&mut self, ctx: &mut Self::Context) -> Running {
+        println!("Lobby ({}): closing.", self.game_id);
+        Running::Stop
     }
 }
 

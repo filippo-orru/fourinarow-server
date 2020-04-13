@@ -34,7 +34,7 @@ enum BacklinkState {
 
 pub enum ClientStateMessage {
     BackLink(Addr<ClientConnection>),
-    OpponentLeaving,
+    Reset,
     Timeout, // Triggered by client timeout
 }
 
@@ -59,7 +59,7 @@ impl Handler<ClientStateMessage> for ClientState {
                 }
                 ctx.stop();
             }
-            OpponentLeaving => {
+            Reset => {
                 self.conn_state = ClientConnState::Idle;
             }
         }
@@ -113,8 +113,9 @@ impl Handler<PlayerMessage> for ClientState {
                                 })
                                 .is_err()
                             {
-                                client_conn_addr
-                                    .do_send(ServerMessage::Error(Some(SrvMsgError::Internal)));
+                                // client_conn_addr
+                                //     .do_send(ServerMessage::Error(Some(SrvMsgError::Internal)));
+                                /// TODO: Lobby is dead. Send okay or error here?
                             }
                         }
                         ClientConnState::Idle => {
@@ -193,7 +194,7 @@ impl Handler<PlayerMessage> for ClientState {
 
 //     fn handle(&mut self, msg: ServerMessage, ctx: &mut Self::Context) -> Self::Result {
 //         match msg {
-//             ServerMessage::OpponentLeaving
+//             ServerMessage::Reset
 //         }
 //     }
 // }
