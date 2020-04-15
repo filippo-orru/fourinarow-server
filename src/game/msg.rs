@@ -7,8 +7,8 @@ pub enum ServerMessage {
     OpponentLeaving,
     OpponentJoining,
     LobbyResponse(GameId),
-    GameStart(bool), // whether it's your or opponent's turn
-    GameOver(bool),  // whether you or opp. won
+    GameStart(bool), // true if recipient goes first
+    GameOver(bool),  // true if recipient won
     LobbyClosing,
     Okay,
     Error(Option<SrvMsgError>),
