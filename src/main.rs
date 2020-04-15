@@ -30,7 +30,11 @@ async fn main() {
             )
             .service(web::scope("/api").configure(api::config))
             .service(web::scope("/game").configure(|cfg| game::config(cfg)))
-            .service(fs::Files::new("/", "static/"))
+            .service(fs::Files::new("/", "static/").default_handler(web::to(|| {
+                HttpResponse::Found()
+                    .header("LOCATION", "/404.html")
+                    .finish()
+            })))
             .default_service(web::to(HttpResponse::NotFound))
     })
     .bind(BIND_ADDR)
