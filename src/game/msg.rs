@@ -1,4 +1,5 @@
 use super::game_info::{GameId, GAME_ID_LEN};
+use super::lobby_mgr::LobbyKind;
 use actix::prelude::*;
 
 #[derive(Debug, Clone, Copy)]
@@ -23,7 +24,7 @@ pub enum SrvMsgError {
     InvalidColumn,
     NotInLobby,
     NotYourTurn,
-    GameAlreadyStarted,
+    AlreadyInLobby,
     GameNotStarted,
     GameNotOver,
     // GameAlreadyOver,
@@ -64,7 +65,7 @@ impl SrvMsgError {
             LobbyFull => "LobbyFull".to_owned(),
             InvalidColumn => "InvalidColumn".to_owned(),
             GameNotStarted => "GameNotStarted".to_owned(),
-            GameAlreadyStarted => "GameAlreadyStarted".to_owned(),
+            AlreadyInLobby => "AlreadyInLobby".to_owned(),
             GameNotOver => "GameNotOver".to_owned(),
             // GameAlreadyOver => "GameAlreadyOver".to_owned(),
         }
@@ -87,7 +88,7 @@ pub enum PlayerMessage {
     PlaceChip(usize),
     PlayAgainRequest,
     Leaving,
-    LobbyRequest,
+    LobbyRequest(LobbyKind),
     LobbyJoin(GameId),
 }
 
@@ -99,7 +100,9 @@ impl PlayerMessage {
                 return Some(PlaceChip(row));
             }
         } else if s == "REQ_LOBBY" {
-            return Some(LobbyRequest);
+            return Some(LobbyRequest(LobbyKind::Private));
+        } else if s == "REQ_WW" {
+            return Some(LobbyRequest(LobbyKind::Public));
         // } else if s == "PlayerLeaving" {
         //     return Some(PlayerLeaving);
         } else if s.starts_with("JOIN_LOBBY:") && s.len() == 11 + GAME_ID_LEN {

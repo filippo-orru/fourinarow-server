@@ -1,4 +1,3 @@
-use super::lobby_mgr::LobbyMap;
 use super::msg::SrvMsgError;
 
 use rand::{thread_rng, Rng};
@@ -14,10 +13,10 @@ pub struct GameId {
     inner: [char; GAME_ID_LEN],
 }
 impl GameId {
-    pub fn generate(map: &LobbyMap) -> GameId {
+    pub fn generate(map: &[&GameId]) -> GameId {
         let mut ret = Self::generate_inner();
 
-        while map.contains_key(&ret) {
+        while map.contains(&&ret) {
             ret = Self::generate_inner();
         }
         ret

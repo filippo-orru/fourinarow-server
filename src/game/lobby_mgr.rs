@@ -8,31 +8,81 @@ use actix::prelude::*;
 use std::collections::HashMap;
 
 pub struct LobbyManager {
-    lobby_map: LobbyMap,
+    open_lobby: Option<LobbyInfo>,
+    open_lobby_map: LobbyMap,
+    closed_lobby_map: LobbyMap,
 }
 impl LobbyManager {
     pub fn new() -> LobbyManager {
         LobbyManager {
-            lobby_map: HashMap::new(),
+            open_lobby: None,
+            open_lobby_map: HashMap::new(),
+            closed_lobby_map: HashMap::new(),
+        }
+    }
+
+    fn create_lobby(
+        &mut self,
+        host_addr: Addr<ClientConnection>,
+        lobby_mgr_addr: Addr<LobbyManager>,
+        kind: LobbyKind,
+    ) -> LobbyRequestResponse {
+        let game_id = GameId::generate(
+            &self
+                .open_lobby_map
+                .keys()
+                .clone()
+                .chain(self.closed_lobby_map.keys().clone())
+                .collect::<Vec<_>>(),
+        );
+        let lobby_addr = Lobby::new(game_id, lobby_mgr_addr, host_addr).start();
+        match kind {
+            LobbyKind::Public => {
+                self.open_lobby = Some(LobbyInfo::new(game_id, lobby_addr.clone(), kind));
+            }
+            LobbyKind::Private => {
+                self.open_lobby_map
+                    .insert(game_id, LobbyInfo::new(game_id, lobby_addr.clone(), kind));
+            }
+        }
+
+        // println!("LobbyMgr: {} lobbies after", self.lobby_map.len());
+        // let _ = request.resp.send(Some(lobby_addr));
+        LobbyRequestResponse {
+            player: Player::One,
+            game_id,
+            lobby_addr,
         }
     }
 }
 
 pub type LobbyMap = HashMap<GameId, LobbyInfo>;
+
 #[derive(Clone)]
 pub struct LobbyInfo {
+    game_id: GameId,
     addr: Addr<Lobby>,
-    open: bool,
+    kind: LobbyKind,
 }
 impl LobbyInfo {
-    fn new(addr: Addr<Lobby>) -> LobbyInfo {
-        LobbyInfo { addr, open: true }
+    fn new(game_id: GameId, addr: Addr<Lobby>, kind: LobbyKind) -> LobbyInfo {
+        LobbyInfo {
+            game_id,
+            addr,
+            kind,
+        }
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LobbyKind {
+    Private,
+    Public,
+}
+
 pub enum LobbyRequest {
-    NewLobby(Addr<ClientConnection>),
-    JoinLobby(GameId, Addr<ClientConnection>),
+    NewLobby(Addr<ClientConnection>, LobbyKind),
+    JoinLobby(GameId, Addr<ClientConnection>, LobbyKind),
 }
 
 pub struct LobbyRequestResponse {
@@ -45,40 +95,49 @@ impl Handler<LobbyRequest> for LobbyManager {
     type Result = Result<LobbyRequestResponse, ()>;
     fn handle(&mut self, request: LobbyRequest, ctx: &mut Self::Context) -> Self::Result {
         match request {
-            LobbyRequest::NewLobby(host_addr) => {
-                // println!(
-                //     "LobbyMgr: Requested lobby ({} active lobbies).",
-                //     self.lobby_map.len()
-                // );
-                // println!("LobbyMgr: New lobby requested");
-                let game_id = GameId::generate(&self.lobby_map);
-                host_addr.do_send(ServerMessage::LobbyResponse(game_id));
-                // println!("LobbyMgr: {} lobbies before", self.lobby_map.len());
-                let lobby_addr = Lobby::new(game_id, ctx.address(), host_addr).start();
-                self.lobby_map
-                    .insert(game_id, LobbyInfo::new(lobby_addr.clone()));
-                // println!("LobbyMgr: {} lobbies after", self.lobby_map.len());
-                // let _ = request.resp.send(Some(lobby_addr));
-                Ok(LobbyRequestResponse {
-                    player: Player::One,
-                    game_id,
-                    lobby_addr,
-                })
+            LobbyRequest::NewLobby(host_addr, kind) => {
+                if let LobbyKind::Public = kind {
+                    let lobby_info = if let Some(open_lobby) = self.open_lobby.clone() {
+                        self.open_lobby = None;
+                        open_lobby.addr.do_send(PlayerJoined(host_addr.clone()));
+                        host_addr.do_send(ServerMessage::OpponentJoining);
+                        self.closed_lobby_map
+                            .insert(open_lobby.game_id, open_lobby.clone());
+
+                        LobbyRequestResponse {
+                            player: Player::Two,
+                            game_id: open_lobby.game_id,
+                            lobby_addr: open_lobby.addr,
+                        }
+                    } else {
+                        host_addr.do_send(ServerMessage::Okay);
+                        self.create_lobby(host_addr, ctx.address(), LobbyKind::Public)
+                    };
+                    Ok(lobby_info)
+                } else {
+                    let lobby_info =
+                        self.create_lobby(host_addr.clone(), ctx.address(), LobbyKind::Private);
+
+                    host_addr.do_send(ServerMessage::LobbyResponse(lobby_info.game_id));
+                    Ok(lobby_info)
+                }
             }
-            LobbyRequest::JoinLobby(id, client_addr) => {
+            LobbyRequest::JoinLobby(id, client_addr, kind) => {
                 // println!(
                 //     "LobbyMgr: Requested to join lobby {} ({} active lobbies).",
                 //     id,
                 //     self.lobby_map.len()
                 // );
                 // print!("LobbyMgr: Joining lobby requested... ");
-                if let Some(ref mut lobby_info) = self.lobby_map.get_mut(&id) {
-                    if lobby_info.open {
-                        lobby_info.open = false;
-                        lobby_info.addr.do_send(ClientLobbyMessageNamed {
-                            sender: Player::Two,
-                            msg: ClientLobbyMessage::PlayerJoined(client_addr),
-                        });
+                if let Some(ref mut lobby_info) = self.open_lobby_map.get_mut(&id) {
+                    if lobby_info.kind == kind {
+                        lobby_info.addr.do_send(
+                            PlayerJoined(client_addr),
+                            //     ClientLobbyMessageNamed {
+                            // msg:
+                            //     sender: Player::Two,
+                            // }
+                        );
 
                         Ok(LobbyRequestResponse {
                             player: Player::Two,
@@ -108,11 +167,23 @@ impl Message for LobbyManagerMsg {
 }
 impl Handler<LobbyManagerMsg> for LobbyManager {
     type Result = ();
-    fn handle(&mut self, lm_msg: LobbyManagerMsg, _ctx: &mut Self::Context) -> Self::Result {
-        match lm_msg {
+    fn handle(&mut self, msg: LobbyManagerMsg, _ctx: &mut Self::Context) -> Self::Result {
+        match msg {
             LobbyManagerMsg::CloseLobbyMsg(game_id) => {
                 println!("LobbyMgr: Removed lobby {}", game_id);
-                self.lobby_map.remove(&game_id);
+                if let Some(LobbyInfo {
+                    game_id: open_game_id,
+                    ..
+                }) = self.open_lobby
+                {
+                    if open_game_id == game_id {
+                        self.open_lobby = None;
+                        return;
+                    }
+                }
+
+                self.open_lobby_map.remove(&game_id);
+                self.closed_lobby_map.remove(&game_id);
             } /*LobbyManagerMsg::Shutdown => {
                   println!(
                       "LobbyMgr: Shutting down ({} active lobbies).",

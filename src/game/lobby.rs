@@ -20,8 +20,26 @@ pub struct ClientLobbyMessageNamed {
     pub msg: ClientLobbyMessage,
 }
 
+pub struct PlayerJoined(pub Addr<ClientConnection>);
+impl Message for PlayerJoined {
+    type Result = Result<(), ()>;
+}
+impl Handler<PlayerJoined> for Lobby {
+    type Result = Result<(), ()>;
+    fn handle(&mut self, msg: PlayerJoined, ctx: &mut Self::Context) -> Self::Result {
+        if let LobbyState::OnePlayer(ref host_addr) = self.game_state {
+            msg.0.do_send(ServerMessage::Okay);
+            host_addr.do_send(ServerMessage::OpponentJoining);
+            self.game_state = LobbyState::TwoPlayers(GameInfo::new(), host_addr.clone(), msg.0);
+            ctx.notify_later(LobbyMessage::GameStart, Duration::from_secs(2));
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+}
+
 pub enum ClientLobbyMessage {
-    PlayerJoined(Addr<ClientConnection>),
     PlayerLeaving,
     PlayAgainRequest,
     PlaceChip(usize),
@@ -49,18 +67,6 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
 
         use ClientLobbyMessage::*;
         match msg_named.msg {
-            PlayerJoined(client_addr) => {
-                if let LobbyState::OnePlayer(ref host_addr) = self.game_state {
-                    host_addr.do_send(ServerMessage::OpponentJoining);
-                    client_addr.do_send(ServerMessage::Okay);
-                    self.game_state =
-                        LobbyState::TwoPlayers(GameInfo::new(), host_addr.clone(), client_addr);
-                    ctx.notify_later(LobbyMessage::GameStart, Duration::from_secs(2));
-                    Ok(())
-                } else {
-                    Err(())
-                }
-            }
             PlayerLeaving => {
                 self.lobby_mgr_addr
                     .do_send(LobbyManagerMsg::CloseLobbyMsg(self.game_id));

@@ -127,11 +127,14 @@ impl Handler<PlayerMessage> for ClientState {
                     // ctx.stop();
                     ok
                 }
-                LobbyRequest => {
+                LobbyRequest(kind) => {
                     if let ClientConnState::Idle = &self.conn_state {
                         let client_conn_addr = client_conn_addr.clone();
                         self.lobby_mgr
-                            .send(lobby_mgr::LobbyRequest::NewLobby(client_conn_addr.clone()))
+                            .send(lobby_mgr::LobbyRequest::NewLobby(
+                                client_conn_addr.clone(),
+                                kind,
+                            ))
                             .into_actor(self)
                             .then(move |res, act, _ctx| {
                                 if let Ok(lobbyreq_resp_res) = res {
@@ -151,7 +154,7 @@ impl Handler<PlayerMessage> for ClientState {
                         ok
                     } else {
                         client_conn_addr
-                            .do_send(ServerMessage::Error(Some(SrvMsgError::GameAlreadyStarted)));
+                            .do_send(ServerMessage::Error(Some(SrvMsgError::AlreadyInLobby)));
                         err
                     }
                 }
@@ -161,6 +164,7 @@ impl Handler<PlayerMessage> for ClientState {
                             .send(lobby_mgr::LobbyRequest::JoinLobby(
                                 id,
                                 client_conn_addr.clone(),
+                                LobbyKind::Private,
                             ))
                             .into_actor(self)
                             .then(|res, act, _ctx| {
@@ -178,7 +182,7 @@ impl Handler<PlayerMessage> for ClientState {
                         ok
                     } else {
                         client_conn_addr
-                            .do_send(ServerMessage::Error(Some(SrvMsgError::GameAlreadyStarted)));
+                            .do_send(ServerMessage::Error(Some(SrvMsgError::AlreadyInLobby)));
                         err
                     }
                 }
