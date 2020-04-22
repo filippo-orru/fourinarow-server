@@ -7,7 +7,7 @@ use super::msg::*;
 use actix::*;
 use std::time::{Duration, Instant};
 
-const LOBBY_TIMEOUT_S: u64 = 5 * 60;
+const LOBBY_TIMEOUT_S: u64 = 5 * 60; // 5 Minutes
 
 pub enum LobbyState {
     OnePlayer(Addr<ClientConnection>),

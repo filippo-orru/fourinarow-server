@@ -99,8 +99,15 @@ impl Handler<LobbyRequest> for LobbyManager {
                 if let LobbyKind::Public = kind {
                     let lobby_info = if let Some(open_lobby) = self.open_lobby.clone() {
                         self.open_lobby = None;
-                        open_lobby.addr.do_send(PlayerJoined(host_addr.clone()));
-                        host_addr.do_send(ServerMessage::OpponentJoining);
+                        open_lobby
+                            .addr
+                            .send(PlayerJoined(host_addr.clone()))
+                            .into_actor(self)
+                            .then(|_, _, _| fut::ready(()))
+                            .wait(ctx);
+                        ctx.run_later(std::time::Duration::from_millis(0), move |_, _| {
+                            host_addr.do_send(ServerMessage::OpponentJoining);
+                        });
                         self.closed_lobby_map
                             .insert(open_lobby.game_id, open_lobby.clone());
 
