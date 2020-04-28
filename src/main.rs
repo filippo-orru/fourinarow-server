@@ -3,7 +3,11 @@ mod game;
 
 use actix::Actor;
 use actix_files as fs;
+use actix_web::dev::Server;
 use actix_web::{middleware, web, App, HttpResponse, HttpServer};
+
+use api::users::user_manager::UserManager;
+use game::lobby_mgr::LobbyManager;
 
 const BIND_ADDR: &str = "0.0.0.0:40146";
 
@@ -13,13 +17,25 @@ async fn main() {
         std::env::set_var("RUST_LOG", "actix_web=info");
     }
     env_logger::init();
+    let server = start_server();
 
+    if server.await.is_err() {
+        println!("Server terminated with an error!");
+    } else {
+        println!("Server terminated cleanly.");
+    }
+}
+
+fn start_server() -> Server {
     println!("Running on {}.", BIND_ADDR);
-    let lobby_mgr_addr = game::lobby_mgr::LobbyManager::new().start();
-    let _close_res = HttpServer::new(move || {
+    let user_mgr_addr = UserManager::new().start();
+    let lobby_mgr_addr = LobbyManager::new(user_mgr_addr.clone()).start();
+    HttpServer::new(move || {
         App::new()
             .wrap(middleware::Logger::default())
+            .wrap(middleware::Compress::default())
             .data(lobby_mgr_addr.clone())
+            .data(user_mgr_addr.clone())
             .route(
                 "/",
                 web::get().to(|| {
@@ -40,5 +56,4 @@ async fn main() {
     .bind(BIND_ADDR)
     .unwrap()
     .run()
-    .await;
 }

@@ -1,6 +1,7 @@
 use super::client_state::*;
 use super::lobby_mgr::LobbyManager;
 use super::msg::*;
+use crate::api::users::user_manager::UserManager;
 
 use actix::*;
 use actix_web_actors::ws;
@@ -16,9 +17,9 @@ pub struct ClientConnection {
 }
 
 impl ClientConnection {
-    pub fn new(lobby_mgr: Addr<LobbyManager>) -> ClientConnection {
+    pub fn new(lobby_mgr: Addr<LobbyManager>, user_mgr: Addr<UserManager>) -> ClientConnection {
         // client_conn_addr: Addr<ClientConnection>,
-        let client_state_addr = ClientState::new(lobby_mgr).start();
+        let client_state_addr = ClientState::new(lobby_mgr, user_mgr).start();
         ClientConnection {
             hb: Instant::now(),
             client_state_addr,
@@ -30,7 +31,7 @@ impl ClientConnection {
             //: &mut ws::WebsocketContext<WsClientConnection>
             if act.hb.elapsed().as_secs() >= HB_TIMEOUT {
                 // println!("Client timed out");
-                act.client_state_addr.do_send(ClientStateMessage::Timeout);
+                act.client_state_addr.do_send(ClientStateMessage::Close);
 
                 ctx.stop();
 
@@ -44,7 +45,8 @@ impl ClientConnection {
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ClientConnection {
     fn handle(&mut self, msg_res: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
         let ws_msg = match msg_res {
-            Err(_) => {
+            Err(e) => {
+                println!("ClientConn: Protocoll Error ({})", e);
                 ctx.stop();
                 return;
             }
@@ -60,10 +62,8 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ClientConnection 
                 // println!("<pong>");
                 self.hb = Instant::now();
             }
-            ws::Message::Binary(_) => println!("Unexpected binary"),
+            ws::Message::Binary(_) => println!("ClientConn: Unexpected binary"),
             ws::Message::Close(_) => {
-                println!("ClientConn: client disconnected.");
-                self.client_state_addr.do_send(PlayerMessage::Leaving);
                 ctx.stop();
             }
             ws::Message::Continuation(_) => {
@@ -123,5 +123,11 @@ impl Actor for ClientConnection {
             .do_send(ClientStateMessage::BackLink(ctx.address()));
 
         // self.game_state = GameState::WaitingInLobby(PlayerInfo(Addr::new(AddressSender::)));
+    }
+
+    fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
+        println!("ClientConn: Stopping");
+        self.client_state_addr.do_send(ClientStateMessage::Close);
+        Running::Stop
     }
 }

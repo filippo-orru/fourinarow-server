@@ -3,6 +3,10 @@ use super::game_info::GameId;
 use super::game_info::Player;
 use super::lobby::*;
 use super::msg::*;
+use crate::api::users::{
+    user::{PlayedGameInfo, UserId},
+    user_manager,
+};
 
 use actix::prelude::*;
 use std::collections::HashMap;
@@ -11,19 +15,22 @@ pub struct LobbyManager {
     open_lobby: Option<LobbyInfo>,
     open_lobby_map: LobbyMap,
     closed_lobby_map: LobbyMap,
+    user_mgr: Addr<user_manager::UserManager>,
 }
 impl LobbyManager {
-    pub fn new() -> LobbyManager {
+    pub fn new(user_mgr: Addr<user_manager::UserManager>) -> LobbyManager {
         LobbyManager {
             open_lobby: None,
             open_lobby_map: HashMap::new(),
             closed_lobby_map: HashMap::new(),
+            user_mgr,
         }
     }
 
     fn create_lobby(
         &mut self,
         host_addr: Addr<ClientConnection>,
+        maybe_host_id: Option<UserId>,
         lobby_mgr_addr: Addr<LobbyManager>,
         kind: LobbyKind,
     ) -> LobbyRequestResponse {
@@ -35,7 +42,7 @@ impl LobbyManager {
                 .chain(self.closed_lobby_map.keys().clone())
                 .collect::<Vec<_>>(),
         );
-        let lobby_addr = Lobby::new(game_id, lobby_mgr_addr, host_addr).start();
+        let lobby_addr = Lobby::new(game_id, lobby_mgr_addr, host_addr, maybe_host_id).start();
         match kind {
             LobbyKind::Public => {
                 self.open_lobby = Some(LobbyInfo::new(game_id, lobby_addr.clone(), kind));
@@ -81,8 +88,8 @@ pub enum LobbyKind {
 }
 
 pub enum LobbyRequest {
-    NewLobby(Addr<ClientConnection>, LobbyKind),
-    JoinLobby(GameId, Addr<ClientConnection>, LobbyKind),
+    NewLobby(Addr<ClientConnection>, Option<UserId>, LobbyKind),
+    JoinLobby(GameId, Addr<ClientConnection>, Option<UserId>, LobbyKind),
 }
 
 pub struct LobbyRequestResponse {
@@ -95,13 +102,13 @@ impl Handler<LobbyRequest> for LobbyManager {
     type Result = Result<LobbyRequestResponse, ()>;
     fn handle(&mut self, request: LobbyRequest, ctx: &mut Self::Context) -> Self::Result {
         match request {
-            LobbyRequest::NewLobby(host_addr, kind) => {
+            LobbyRequest::NewLobby(host_addr, maybe_user_id, kind) => {
                 if let LobbyKind::Public = kind {
                     let lobby_info = if let Some(open_lobby) = self.open_lobby.clone() {
                         self.open_lobby = None;
                         open_lobby
                             .addr
-                            .send(PlayerJoined(host_addr.clone()))
+                            .send(PlayerJoined(host_addr.clone(), maybe_user_id))
                             .into_actor(self)
                             .then(|_, _, _| fut::ready(()))
                             .wait(ctx);
@@ -118,18 +125,27 @@ impl Handler<LobbyRequest> for LobbyManager {
                         }
                     } else {
                         host_addr.do_send(ServerMessage::Okay);
-                        self.create_lobby(host_addr, ctx.address(), LobbyKind::Public)
+                        self.create_lobby(
+                            host_addr,
+                            maybe_user_id,
+                            ctx.address(),
+                            LobbyKind::Public,
+                        )
                     };
                     Ok(lobby_info)
                 } else {
-                    let lobby_info =
-                        self.create_lobby(host_addr.clone(), ctx.address(), LobbyKind::Private);
+                    let lobby_info = self.create_lobby(
+                        host_addr.clone(),
+                        maybe_user_id,
+                        ctx.address(),
+                        LobbyKind::Private,
+                    );
 
                     host_addr.do_send(ServerMessage::LobbyResponse(lobby_info.game_id));
                     Ok(lobby_info)
                 }
             }
-            LobbyRequest::JoinLobby(id, client_addr, kind) => {
+            LobbyRequest::JoinLobby(id, client_addr, maybe_user_id, kind) => {
                 // println!(
                 //     "LobbyMgr: Requested to join lobby {} ({} active lobbies).",
                 //     id,
@@ -139,7 +155,7 @@ impl Handler<LobbyRequest> for LobbyManager {
                 if let Some(ref mut lobby_info) = self.open_lobby_map.get_mut(&id) {
                     if lobby_info.kind == kind {
                         lobby_info.addr.do_send(
-                            PlayerJoined(client_addr),
+                            PlayerJoined(client_addr, maybe_user_id),
                             //     ClientLobbyMessageNamed {
                             // msg:
                             //     sender: Player::Two,
@@ -167,6 +183,7 @@ impl Handler<LobbyRequest> for LobbyManager {
 
 pub enum LobbyManagerMsg {
     CloseLobbyMsg(GameId),
+    PlayedGame(PlayedGameInfo),
     // Shutdown,
 }
 impl Message for LobbyManagerMsg {
@@ -175,8 +192,9 @@ impl Message for LobbyManagerMsg {
 impl Handler<LobbyManagerMsg> for LobbyManager {
     type Result = ();
     fn handle(&mut self, msg: LobbyManagerMsg, _ctx: &mut Self::Context) -> Self::Result {
+        use LobbyManagerMsg::*;
         match msg {
-            LobbyManagerMsg::CloseLobbyMsg(game_id) => {
+            CloseLobbyMsg(game_id) => {
                 println!("LobbyMgr: Removed lobby {}", game_id);
                 if let Some(LobbyInfo {
                     game_id: open_game_id,
@@ -191,6 +209,12 @@ impl Handler<LobbyManagerMsg> for LobbyManager {
 
                 self.open_lobby_map.remove(&game_id);
                 self.closed_lobby_map.remove(&game_id);
+            }
+            PlayedGame(game_info) => {
+                self.user_mgr
+                    .do_send(user_manager::msg::IntUserMgrMsg::Game(
+                        user_manager::msg::GameMsg::PlayedGame(game_info),
+                    ));
             } /*LobbyManagerMsg::Shutdown => {
                   println!(
                       "LobbyMgr: Shutting down ({} active lobbies).",
@@ -219,6 +243,11 @@ impl Handler<LobbyManagerMsg> for LobbyManager {
 
 impl Actor for LobbyManager {
     type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        self.user_mgr
+            .do_send(user_manager::msg::IntUserMgrMsg::Backlink(ctx.address()));
+    }
 }
 impl Message for LobbyRequest {
     type Result = Result<LobbyRequestResponse, ()>;

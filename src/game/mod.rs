@@ -3,8 +3,9 @@ mod client_state;
 mod game_info;
 mod lobby;
 pub mod lobby_mgr;
-mod msg;
+pub mod msg;
 
+use crate::api::users::user_manager::UserManager;
 pub use client_conn::ClientConnection;
 use lobby_mgr::LobbyManager;
 
@@ -20,9 +21,10 @@ async fn websocket_route(
     req: HttpRequest,
     stream: web::Payload,
     lobby_mgr: web::Data<Addr<LobbyManager>>,
+    user_mgr: web::Data<Addr<UserManager>>,
 ) -> Result<HttpResponse, Error> {
     ws::start(
-        ClientConnection::new(lobby_mgr.get_ref().clone()),
+        ClientConnection::new(lobby_mgr.get_ref().clone(), user_mgr.get_ref().clone()),
         &req,
         stream,
     )

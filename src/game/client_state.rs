@@ -3,13 +3,22 @@ use super::game_info::*;
 use super::lobby::*;
 use super::lobby_mgr::{self, *};
 use super::msg::*;
+use crate::api::users::{
+    user::UserId,
+    user_manager::{
+        msg::{IntUserMgrMsg, StartPlaying},
+        UserManager,
+    },
+};
 
 use actix::*;
 
 pub struct ClientState {
     lobby_mgr: Addr<LobbyManager>,
+    user_mgr: Addr<UserManager>,
     backlinked_state: BacklinkState,
     conn_state: ClientConnState,
+    maybe_user_id: Option<UserId>,
 }
 
 pub enum ClientConnState {
@@ -18,11 +27,13 @@ pub enum ClientConnState {
 }
 
 impl ClientState {
-    pub fn new(lobby_mgr: Addr<LobbyManager>) -> ClientState {
+    pub fn new(lobby_mgr: Addr<LobbyManager>, user_mgr: Addr<UserManager>) -> ClientState {
         ClientState {
             lobby_mgr,
+            user_mgr,
             backlinked_state: BacklinkState::Waiting,
             conn_state: ClientConnState::Idle,
+            maybe_user_id: None,
         }
     }
 }
@@ -35,7 +46,7 @@ enum BacklinkState {
 pub enum ClientStateMessage {
     BackLink(Addr<ClientConnection>),
     Reset,
-    Timeout, // Triggered by client timeout
+    Close, // Triggered by client timeout or disconnect
 }
 
 impl Handler<ClientStateMessage> for ClientState {
@@ -48,8 +59,7 @@ impl Handler<ClientStateMessage> for ClientState {
                     self.backlinked_state = BacklinkState::Linked(addr);
                 }
             }
-            Timeout => {
-                println!("ClientState: Client timed out.");
+            Close => {
                 if let ClientConnState::InLobby(player, lobby_addr) = &self.conn_state {
                     lobby_addr.do_send(ClientLobbyMessageNamed {
                         sender: *player,
@@ -133,6 +143,7 @@ impl Handler<PlayerMessage> for ClientState {
                         self.lobby_mgr
                             .send(lobby_mgr::LobbyRequest::NewLobby(
                                 client_conn_addr.clone(),
+                                self.maybe_user_id,
                                 kind,
                             ))
                             .into_actor(self)
@@ -164,6 +175,7 @@ impl Handler<PlayerMessage> for ClientState {
                             .send(lobby_mgr::LobbyRequest::JoinLobby(
                                 id,
                                 client_conn_addr.clone(),
+                                self.maybe_user_id,
                                 LobbyKind::Private,
                             ))
                             .into_actor(self)
@@ -185,6 +197,33 @@ impl Handler<PlayerMessage> for ClientState {
                             .do_send(ServerMessage::Error(Some(SrvMsgError::AlreadyInLobby)));
                         err
                     }
+                }
+                Login(username, password) => {
+                    let client_conn_addr = client_conn_addr.clone();
+                    self.user_mgr
+                        .send(StartPlaying(username, password))
+                        .into_actor(self)
+                        .then(move |res, act, _| {
+                            if let Ok(maybe_id) = res {
+                                match maybe_id {
+                                    Ok(id) => {
+                                        act.maybe_user_id = Some(id);
+                                        // act.user_mgr.do_send(IntUserMgrMsg::StartPlaying(id));
+                                        client_conn_addr.do_send(ServerMessage::Okay);
+                                    }
+                                    Err(srv_msg_err) => {
+                                        client_conn_addr
+                                            .do_send(ServerMessage::Error(Some(srv_msg_err)));
+                                    }
+                                }
+                            } else {
+                                client_conn_addr
+                                    .do_send(ServerMessage::Error(Some(SrvMsgError::Internal)));
+                            }
+                            fut::ready(())
+                        })
+                        .wait(ctx);
+                    ok
                 }
             }
         } else {
@@ -209,4 +248,12 @@ impl Message for ClientStateMessage {
 
 impl Actor for ClientState {
     type Context = Context<Self>;
+
+    fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
+        println!("ClientState: Stopping");
+        if let Some(id) = self.maybe_user_id {
+            self.user_mgr.do_send(IntUserMgrMsg::StopPlaying(id));
+        }
+        Running::Stop
+    }
 }

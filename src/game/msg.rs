@@ -14,22 +14,6 @@ pub enum ServerMessage {
     Okay,
     Error(Option<SrvMsgError>),
 }
-
-#[derive(Debug, Clone, Copy)]
-pub enum SrvMsgError {
-    Internal,
-    InvalidMessage,
-    LobbyNotFound,
-    LobbyFull,
-    InvalidColumn,
-    NotInLobby,
-    NotYourTurn,
-    AlreadyInLobby,
-    GameNotStarted,
-    GameNotOver,
-    // GameAlreadyOver,
-}
-
 impl ServerMessage {
     pub fn serialize(self) -> String {
         use ServerMessage::*;
@@ -53,6 +37,23 @@ impl ServerMessage {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum SrvMsgError {
+    Internal,
+    InvalidMessage,
+    LobbyNotFound,
+    LobbyFull,
+    InvalidColumn,
+    NotInLobby,
+    NotYourTurn,
+    AlreadyInLobby,
+    GameNotStarted,
+    GameNotOver,
+    IncorrectCredentials,
+    AlreadyLoggedIn,
+    // GameAlreadyOver,
+}
+
 impl SrvMsgError {
     fn serialize(self) -> String {
         use SrvMsgError::*;
@@ -67,6 +68,8 @@ impl SrvMsgError {
             GameNotStarted => "GameNotStarted".to_owned(),
             AlreadyInLobby => "AlreadyInLobby".to_owned(),
             GameNotOver => "GameNotOver".to_owned(),
+            IncorrectCredentials => "IncorrectCredentials".to_owned(),
+            AlreadyLoggedIn => "AlreadyLoggedIn".to_owned(),
             // GameAlreadyOver => "GameAlreadyOver".to_owned(),
         }
     }
@@ -83,17 +86,21 @@ impl From<bool> for ServerMessage {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum PlayerMessage {
     PlaceChip(usize),
     PlayAgainRequest,
     Leaving,
     LobbyRequest(LobbyKind),
     LobbyJoin(GameId),
+    Login(String, String),
 }
 
 impl PlayerMessage {
     pub fn parse(s: &str) -> Option<PlayerMessage> {
+        if s.len() > 200 {
+            return None;
+        }
         use PlayerMessage::*;
         if s.starts_with("PC:") && s.len() == 4 {
             if let Ok(row) = s[3..4].parse() {
@@ -113,12 +120,17 @@ impl PlayerMessage {
             return Some(Leaving);
         } else if s == "PLAY_AGAIN" {
             return Some(PlayAgainRequest);
+        } else if s.starts_with("LOGIN:") {
+            let split: Vec<&str> = s["LOGIN:".len()..].split('#').collect();
+            if split.len() == 2 {
+                return Some(Login(split[0].to_owned(), split[1].to_owned()));
+            }
         }
         None
     }
 }
 
-impl Message for PlayerMessage {
+impl<'a> Message for PlayerMessage {
     type Result = Result<(), ()>;
 }
 // impl Message for ServerMessageNamed {
