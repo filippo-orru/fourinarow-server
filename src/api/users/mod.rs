@@ -6,15 +6,14 @@ use actix::{Addr, MailboxError};
 use actix_web::*;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
-    cfg
-        .route("/", web::get().to(users))        
-        .route("/register", web::post().to(register)
-        // .service(
-        //     web::scope("/account")
-            // .route("/login", web::post().to(login))
-                // .route("/register", web::post().to(register))
-                // .route("/login", web::post().to(login)),
-        );
+    cfg.route("/", web::get().to(users))
+        .route("/register", web::post().to(register))
+        .route("/login", web::post().to(login));
+    // .service(
+    //     web::scope("/account")
+    // .route("/register", web::post().to(register))
+    // .route("/login", web::post().to(login)),
+    // ;
 }
 
 async fn register(
@@ -36,21 +35,20 @@ async fn register(
     }
 }
 
-// async fn login(
-//     _req: HttpRequest,
-//     register_payload: web::Json<UserInfoPayload>,
-//     user_mgr: web::Data<Addr<UserManager>>,
-// ) -> HttpResponse {
-//     if let Ok(Ok(_)) = user_mgr
-//         .send(StartPlaying(register_payload.into_inner(), false))
-//         .await
-//     {
-//         HttpResponse::Ok().json(ApiResponse::new("Login successful"))
-//     // Ok("Logged in".into())
-//     } else {
-//         HttpResponse::Forbidden().json(ApiResponse::new("Login failed"))
-//     }
-// }
+async fn login(
+    _req: HttpRequest,
+    register_payload: web::Json<user_manager::UserInfoPayload>,
+    user_mgr: web::Data<Addr<user_manager::UserManager>>,
+) -> HttpResponse {
+    if let Ok(Ok(_)) = user_mgr
+        .send(user_manager::msg::Login(register_payload.into_inner()))
+        .await
+    {
+        HttpResponse::Ok().json(ApiResponse::new("Login successful"))
+    } else {
+        HttpResponse::Forbidden().json(ApiResponse::new("Login failed"))
+    }
+}
 
 async fn users(
     _: HttpRequest,

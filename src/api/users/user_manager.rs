@@ -118,6 +118,26 @@ pub mod msg {
             }
         }
     }
+    pub struct Login(pub UserInfoPayload);
+    impl Message for Login {
+        type Result = Result<UserId, ApiError>;
+    }
+    impl Handler<Login> for UserManager {
+        type Result = Result<UserId, ApiError>;
+
+        fn handle(&mut self, msg: Login, _ctx: &mut Self::Context) -> Self::Result {
+            self.users
+                .values()
+                .find_map(|u| {
+                    if u.username == msg.0.username && u.password.matches(&msg.0.password) {
+                        Some(u.id)
+                    } else {
+                        None
+                    }
+                })
+                .ok_or(ApiError::IncorrectCredentials)
+        }
+    }
 
     pub struct StartPlaying(pub String, pub String);
     impl Message for StartPlaying {
