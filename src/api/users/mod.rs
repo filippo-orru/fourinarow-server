@@ -4,6 +4,7 @@ pub mod user_manager;
 use super::ApiResponse;
 use actix::{Addr, MailboxError};
 use actix_web::*;
+use HttpResponse as HR;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.route("/", web::get().to(users))
@@ -21,17 +22,16 @@ async fn register(
     register_payload: web::Json<user_manager::UserInfoPayload>,
     user_mgr: web::Data<Addr<user_manager::UserManager>>,
 ) -> HttpResponse {
-    use HttpResponse as HR;
     if let Ok(reg_res) = user_mgr
         .send(user_manager::msg::Register(register_payload.into_inner()))
         .await
     {
         match reg_res {
-            Ok(_) => HR::Ok().json(ApiResponse::new("Registration successful")),
+            Ok(_) => HR::Ok().json(ApiResponse::new("Registration successful.")),
             Err(api_err) => HR::Forbidden().json(ApiResponse::from_api_error(api_err)),
         }
     } else {
-        HR::Forbidden().json(ApiResponse::new("Registration failed"))
+        HR::InternalServerError().json(ApiResponse::new("Registration failed. Internal Error."))
     }
 }
 
@@ -40,13 +40,17 @@ async fn login(
     register_payload: web::Json<user_manager::UserInfoPayload>,
     user_mgr: web::Data<Addr<user_manager::UserManager>>,
 ) -> HttpResponse {
-    if let Ok(Ok(_)) = user_mgr
+    if let Ok(msg_res) = user_mgr
         .send(user_manager::msg::Login(register_payload.into_inner()))
         .await
     {
-        HttpResponse::Ok().json(ApiResponse::new("Login successful"))
+        if let Ok(_) = msg_res {
+        HR::Ok().json(ApiResponse::new("Login successful."))
+        } else {
+            HR::Forbidden().json(ApiResponse::new("Login failed."))
+        }
     } else {
-        HttpResponse::Forbidden().json(ApiResponse::new("Login failed"))
+        HR::InternalServerError().json(ApiResponse::new("Login failed. Internal Error."))
     }
 }
 
