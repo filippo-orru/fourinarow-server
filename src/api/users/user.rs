@@ -1,5 +1,6 @@
 use rand::{thread_rng, Rng};
 use serde::{de, Deserialize, Serialize, Serializer};
+use std::collections::HashMap;
 use std::fmt;
 
 const USER_ID_LEN: usize = 12;
@@ -86,6 +87,7 @@ pub struct User {
     pub password: HashedPassword,
     pub email: Option<String>,
     pub game_info: UserGameInfo,
+    pub friends: Vec<UserId>,
     #[serde(skip)]
     pub playing: bool,
     // login_key: Option<String>,
@@ -98,6 +100,7 @@ impl User {
             password: HashedPassword::new(password),
             email: None,
             game_info: UserGameInfo::new(),
+            friends: Vec::new(),
             playing: false,
             // login_key: None,
         }
@@ -201,4 +204,44 @@ impl PlayedGameInfo {
 pub enum GameKind {
     Ranked,
     Simple,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct PublicUser {
+    id: UserId,
+    username: String,
+    email: Option<String>,
+    game_info: UserGameInfo,
+    friends: Vec<Friend>,
+}
+impl PublicUser {
+    pub fn from(user: User, users: &HashMap<UserId, User>) -> Self {
+        Self {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            game_info: user.game_info,
+            friends: user
+                .friends
+                .into_iter()
+                .filter_map(|id| Friend::from(id, users))
+                .collect(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Friend {
+    id: UserId,
+    username: String,
+    game_info: UserGameInfo,
+}
+impl Friend {
+    pub fn from(id: UserId, users: &HashMap<UserId, User>) -> Option<Self> {
+        users.get(&id).cloned().map(|user| Friend {
+            id: user.id,
+            username: user.username,
+            game_info: user.game_info,
+        })
+    }
 }

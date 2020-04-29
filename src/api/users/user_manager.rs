@@ -54,6 +54,18 @@ impl UserManager {
         serde_json::to_writer(std::fs::File::create(GAMES_PATH)?, &self.games)?;
         Ok(())
     }
+
+    fn get_user(&self, auth: UserAuth) -> Option<User> {
+        self.users
+            .values()
+            .find(|user| user.username == auth.username && user.password.matches(&auth.password))
+            .cloned()
+    }
+    fn get_user_mut(&mut self, auth: UserAuth) -> Option<&mut User> {
+        self.users
+            .values_mut()
+            .find(|user| user.username == auth.username && user.password.matches(&auth.password))
+    }
 }
 
 enum BacklinkState {
@@ -81,13 +93,13 @@ impl Actor for UserManager {
 }
 
 #[derive(Deserialize)]
-pub struct UserInfoPayload {
+pub struct UserAuth {
     username: String,
     password: String,
 }
-// impl UserInfoPayload {
-//     pub fn new(username: String, password: String) -> UserInfoPayload {
-//         UserInfoPayload { username, password }
+// impl UserAuth {
+//     pub fn new(username: String, password: String) -> UserAuth {
+//         UserAuth { username, password }
 //     }
 // }
 
@@ -95,7 +107,7 @@ pub mod msg {
     use super::*;
     use crate::game::msg::SrvMsgError;
 
-    pub struct Register(pub UserInfoPayload);
+    pub struct Register(pub UserAuth);
     impl Message for Register {
         type Result = Result<UserId, ApiError>;
     }
@@ -118,7 +130,7 @@ pub mod msg {
             }
         }
     }
-    pub struct Login(pub UserInfoPayload);
+    pub struct Login(pub UserAuth);
     impl Message for Login {
         type Result = Result<UserId, ApiError>;
     }
@@ -126,15 +138,8 @@ pub mod msg {
         type Result = Result<UserId, ApiError>;
 
         fn handle(&mut self, msg: Login, _ctx: &mut Self::Context) -> Self::Result {
-            self.users
-                .values()
-                .find_map(|u| {
-                    if u.username == msg.0.username && u.password.matches(&msg.0.password) {
-                        Some(u.id)
-                    } else {
-                        None
-                    }
-                })
+            self.get_user(msg.0)
+                .map(|user| user.id)
                 .ok_or(ApiError::IncorrectCredentials)
         }
     }
@@ -233,6 +238,66 @@ pub mod msg {
         type Result = Option<Vec<User>>;
         fn handle(&mut self, _msg: GetUsers, _ctx: &mut Self::Context) -> Self::Result {
             Some(self.users.values().cloned().collect())
+        }
+    }
+
+    pub struct GetUser(pub UserAuth);
+    impl Message for GetUser {
+        type Result = Option<PublicUser>;
+    }
+
+    impl Handler<GetUser> for UserManager {
+        type Result = Option<PublicUser>;
+        fn handle(&mut self, msg: GetUser, _ctx: &mut Self::Context) -> Self::Result {
+            self.get_user(msg.0)
+                .map(|u| PublicUser::from(u, &self.users))
+        }
+    }
+
+    pub struct UserAction {
+        pub action: Action,
+        pub auth: UserAuth,
+    }
+    pub enum Action {
+        FriendsAction(FriendsAction),
+    }
+    pub enum FriendsAction {
+        Add(UserId),
+        Delete(UserId),
+    }
+    impl Message for UserAction {
+        type Result = bool;
+    }
+    impl Handler<UserAction> for UserManager {
+        type Result = bool;
+        fn handle(&mut self, msg: UserAction, _ctx: &mut Self::Context) -> Self::Result {
+            if let Some(user) = self.get_user_mut(msg.auth) {
+                match msg.action {
+                    Action::FriendsAction(friends_action) => {
+                        use FriendsAction::*;
+                        match friends_action {
+                            Add(id) => {
+                                if user.id != id && !user.friends.contains(&id) {
+                                    user.friends.push(id);
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                            Delete(id) => {
+                                if let Some(i) = user.friends.iter().position(|f| f == &id) {
+                                    user.friends.remove(i);
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                false
+            }
         }
     }
 }
