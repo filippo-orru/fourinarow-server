@@ -190,14 +190,14 @@ impl UserGameInfo {
 
 #[derive(Serialize, Deserialize)]
 pub struct PlayedGameInfo {
-    pub one: UserId,
-    pub two: UserId,
-    pub one_won: bool,
+    pub winner: UserId,
+    pub loser: UserId,
+    // pub one_won: bool,
     // kind: GameKind,
 }
 impl PlayedGameInfo {
-    pub fn new(one: UserId, two: UserId, one_won: bool) -> PlayedGameInfo {
-        PlayedGameInfo { one, two, one_won }
+    pub fn new(winner: UserId, loser: UserId) -> PlayedGameInfo {
+        PlayedGameInfo { winner, loser }
     }
 }
 #[derive(Serialize, Deserialize)]

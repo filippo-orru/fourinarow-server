@@ -46,7 +46,7 @@ impl UserManager {
 
     fn save_db(&mut self) {
         if let Err(e) = self.save_db_internal() {
-            println!("Failed to save users: {:?}.", e);
+            println!("Failed to save database: {:?}.", e);
         }
     }
     fn save_db_internal(&mut self) -> io::Result<()> {
@@ -190,28 +190,20 @@ pub mod msg {
                 Backlink(lobby_mgr) => self.lobby_mgr_state = BacklinkState::Linked(lobby_mgr),
                 Game(game_msg) => match game_msg {
                     PlayedGame(game_info) => {
-                        if let Some(user) = self.users.get_mut(&game_info.one) {
-                            let sr = &mut user.game_info.skill_rating;
-                            if *sr >= SR_PER_WIN {
-                                *sr += if game_info.one_won {
-                                    SR_PER_WIN
-                                } else {
-                                    -SR_PER_WIN
-                                };
-                            }
+                        let mut found = false;
+                        if let Some(winner) = self.users.get_mut(&game_info.winner) {
+                            winner.game_info.skill_rating += SR_PER_WIN;
+                            found = true;
                         }
-                        if let Some(user) = self.users.get_mut(&game_info.two) {
-                            {
-                                let sr = &mut user.game_info.skill_rating;
-                                if *sr >= SR_PER_WIN {
-                                    *sr += if !game_info.one_won {
-                                        SR_PER_WIN
-                                    } else {
-                                        -SR_PER_WIN
-                                    };
-                                }
+                        if let Some(loser) = self.users.get_mut(&game_info.loser) {
+                            if found {
+                                loser.game_info.skill_rating -= SR_PER_WIN;
+                                self.games.push(game_info);
                             }
-                            self.games.push(game_info);
+                        } else if found {
+                            if let Some(winner) = self.users.get_mut(&game_info.winner) {
+                                winner.game_info.skill_rating -= SR_PER_WIN;
+                            }
                         }
                     }
                 },

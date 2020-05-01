@@ -157,8 +157,17 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                                         if let GameType::Registered(_, host_id, joined_id) =
                                             game_type
                                         {
-                                            let game_info =
-                                                PlayedGameInfo::new(*host_id, *joined_id, true);
+                                            let (winner, loser) = (
+                                                msg_named
+                                                    .sender
+                                                    .select(host_id.clone(), joined_id.clone()),
+                                                msg_named
+                                                    .sender
+                                                    .other()
+                                                    .select(host_id.clone(), joined_id.clone()),
+                                            );
+                                            println!("{} won against {}", winner, loser);
+                                            let game_info = PlayedGameInfo::new(winner, loser);
                                             self.lobby_mgr
                                                 .do_send(LobbyManagerMsg::PlayedGame(game_info));
                                         }

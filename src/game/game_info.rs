@@ -66,6 +66,8 @@ impl Player {
         }
     }
 
+    /// Returns the first parameter if called on player one
+    /// and the second parameter if called on player two.
     pub fn select<T>(self, one: T, two: T) -> T {
         match self {
             Player::One => one,
