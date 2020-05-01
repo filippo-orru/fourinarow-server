@@ -200,6 +200,15 @@ impl Handler<PlayerMessage> for ClientState {
                 }
                 Login(username, password) => {
                     let client_conn_addr = client_conn_addr.clone();
+
+                    if let ClientConnState::InLobby(_, _) = self.conn_state {
+                        client_conn_addr
+                            .do_send(ServerMessage::Error(Some(SrvMsgError::AlreadyInLobby)));
+                        return err;
+                    }
+                    if let Some(id) = self.maybe_user_id {
+                        self.user_mgr.do_send(IntUserMgrMsg::StopPlaying(id));
+                    }
                     self.user_mgr
                         .send(StartPlaying(username, password))
                         .into_actor(self)

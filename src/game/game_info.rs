@@ -74,6 +74,14 @@ impl Player {
             Player::Two => two,
         }
     }
+
+    /// Swaps the parameters if called on player two
+    pub fn select_both<T>(self, one: T, two: T) -> (T, T) {
+        match self {
+            Player::One => (one, two),
+            Player::Two => (two, one),
+        }
+    }
 }
 
 /*pub enum GameState {

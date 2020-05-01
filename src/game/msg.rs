@@ -50,7 +50,7 @@ pub enum SrvMsgError {
     GameNotStarted,
     GameNotOver,
     IncorrectCredentials,
-    AlreadyLoggedIn,
+    AlreadyPlaying,
     // GameAlreadyOver,
 }
 
@@ -69,7 +69,7 @@ impl SrvMsgError {
             AlreadyInLobby => "AlreadyInLobby".to_owned(),
             GameNotOver => "GameNotOver".to_owned(),
             IncorrectCredentials => "IncorrectCredentials".to_owned(),
-            AlreadyLoggedIn => "AlreadyLoggedIn".to_owned(),
+            AlreadyPlaying => "AlreadyPlaying".to_owned(),
             // GameAlreadyOver => "GameAlreadyOver".to_owned(),
         }
     }

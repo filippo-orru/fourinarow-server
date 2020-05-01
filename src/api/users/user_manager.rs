@@ -157,7 +157,7 @@ pub mod msg {
                 .find(|user| user.username == msg.0 && user.password.matches(&msg.1))
             {
                 if user.playing {
-                    return Err(SrvMsgError::AlreadyLoggedIn);
+                    return Err(SrvMsgError::AlreadyPlaying);
                 } else {
                     user.playing = true;
                 }
