@@ -233,6 +233,24 @@ pub mod msg {
         }
     }
 
+    pub struct SearchUsers(pub String);
+    impl Message for SearchUsers {
+        type Result = Option<Vec<PublicUser>>;
+    }
+
+    impl Handler<SearchUsers> for UserManager {
+        type Result = Option<Vec<PublicUser>>;
+        fn handle(&mut self, msg: SearchUsers, _ctx: &mut Self::Context) -> Self::Result {
+            Some(
+                self.users
+                    .values()
+                    .filter(|user| user.username.contains(&msg.0))
+                    .map(|u| PublicUser::from(u.clone(), &self.users))
+                    .collect(),
+            )
+        }
+    }
+
     pub struct GetUser(pub UserAuth);
     impl Message for GetUser {
         type Result = Option<PublicUser>;

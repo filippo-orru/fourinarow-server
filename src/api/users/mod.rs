@@ -10,6 +10,7 @@ use HttpResponse as HR;
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg
         // .route("", web::get().to(users))
+        .route("", web::get().to(search_user))
         .service(
             web::scope("/me")
                 .route("", web::get().to(me))
@@ -72,6 +73,26 @@ async fn users(
         HttpResponse::Ok().json(users)
     } else {
         HttpResponse::InternalServerError().json(ApiResponse::new("Failed to retrieve users"))
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct SearchQuery {
+    search: String,
+}
+
+async fn search_user(
+    _: HttpRequest,
+    user_mgr: web::Data<Addr<user_manager::UserManager>>,
+    query: web::Query<SearchQuery>,
+) -> HR {
+    let user_res: Result<Option<Vec<user::PublicUser>>, MailboxError> = user_mgr
+        .send(user_manager::msg::SearchUsers(query.search.clone()))
+        .await;
+    if let Ok(Some(users)) = user_res {
+        HR::Ok().json(users)
+    } else {
+        HR::InternalServerError().json(ApiResponse::new("Failed to retrieve users"))
     }
 }
 
