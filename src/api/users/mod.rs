@@ -11,12 +11,12 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     cfg
         // .route("", web::get().to(users))
         .route("", web::get().to(search_user))
-        .route("/{user_id}", web::get().to(get_user))
         .service(
             web::scope("/me")
                 .route("", web::get().to(me))
                 .service(web::scope("/friends").configure(friends::config)),
         )
+        .route("/{user_id}", web::get().to(get_user))
         .route("/register", web::post().to(register))
         .route("/login", web::post().to(login));
     // .service(
