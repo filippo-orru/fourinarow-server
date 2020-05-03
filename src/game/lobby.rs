@@ -3,9 +3,13 @@ use super::client_state::ClientStateMessage;
 use super::game_info::{GameId, GameInfo, GameType, Player};
 use super::lobby_mgr::{LobbyManager, LobbyManagerMsg};
 use super::msg::*;
-use crate::api::users::user::{PlayedGameInfo, UserId};
+use crate::api::users::{
+    user::{PlayedGameInfo, UserId},
+    user_mgr,
+};
 
 use actix::*;
+// use futures;
 use std::time::{Duration, Instant};
 
 const LOBBY_TIMEOUT_S: u64 = 5 * 60; // 5 Minutes
@@ -64,6 +68,8 @@ impl Message for ClientLobbyMessageNamed {
 
 pub struct Lobby {
     game_id: GameId,
+    #[allow(dead_code)]
+    user_mgr: Addr<user_mgr::UserManager>,
     lobby_mgr: Addr<LobbyManager>,
     game_state: LobbyState,
     last_hb: Instant,
@@ -201,22 +207,120 @@ impl Handler<LobbyMessage> for Lobby {
                 Ok(())
             }
             LobbyMessage::GameStart => {
-                if let LobbyState::TwoPlayers(game_type, host_addr, client_addr) =
+                if let LobbyState::TwoPlayers(game_type, host_addr, joined_addr) =
                     &mut self.game_state
                 {
                     match game_type {
                         GameType::Registered(game_info, _, _) | GameType::Anonymous(game_info) => {
                             game_info.reset();
-                            host_addr
-                                .do_send(ServerMessage::GameStart(game_info.turn == Player::One));
-                            client_addr
-                                .do_send(ServerMessage::GameStart(game_info.turn == Player::Two));
-                            return Ok(());
                         }
                     }
-                }
+                    match game_type {
+                        GameType::Anonymous(game_info) => {
+                            host_addr.do_send(ServerMessage::GameStart(
+                                game_info.turn == Player::One,
+                                None,
+                            ));
+                            joined_addr.do_send(ServerMessage::GameStart(
+                                game_info.turn == Player::Two,
+                                None,
+                            ));
+                        }
+                        GameType::Registered(game_info, host_id, joined_id) => {
+                            // let user_mgr = self.user_mgr.clone();
+                            host_addr.do_send(ServerMessage::GameStart(
+                                game_info.turn == Player::One,
+                                Some(joined_id.to_string()),
+                            ));
+                            joined_addr.do_send(ServerMessage::GameStart(
+                                game_info.turn == Player::Two,
+                                Some(host_id.to_string()),
+                            ));
+                            // println!("before async");
+                            // || {
+                            // async {
+                            // if let (Ok(Some(host_user)), Ok(Some(joined_user))) = (
+                            // user_mgr
+                            //     .send(user_mgr::msg::GetUser(UserIdent::Id(*host_id)))
+                            //     .into_actor(self)
+                            //     .wait(ctx),
+                            // user_mgr
+                            //     .send(user_mgr::msg::GetUser(UserIdent::Id(*joined_id)))
+                            //     .into_actor(self)
+                            //     .wait(ctx),
+                            // ) {
+                            // if let (Ok(Some(host_user)), Ok(Some(joined_user))) =
+                            //     // futures::executor::block_on(async {
+                            //     (
+                            //     ctx.wait(
+                            //         user_mgr
+                            //             .send(user_mgr::msg::GetUser(UserIdent::Id(*host_id)))
+                            //             .into_actor(self),
+                            //     ),
+                            //     ctx.wait(
+                            //         user_mgr
+                            //             .send(user_mgr::msg::GetUser(UserIdent::Id(*joined_id)))
+                            //             .into_actor(self),
+                            //     ),
+                            // ) {
+                            // user_mgr
+                            //     .send(user_mgr::msg::GetUser(UserIdent::Id(*host_id)))
+                            //     .into_actor(self)
+                            //     .then(|host_res: Result<Option<PublicUser>, _>, act, ctx_inner| {
+                            //         user_mgr
+                            //             .send(user_mgr::msg::GetUser(UserIdent::Id(*joined_id)))
+                            //             // .send(user_mgr::msg::GetUser(UserIdent::Id(*joined_id)))
+                            //             .into_actor(act)
+                            //             .then(|joined_res: Result<Option<PublicUser>, _>, _, _| {
+                            //                 if let (Ok(Some(host_user)), Ok(Some(joined_user))) =
+                            //                     (host_res, joined_res)
+                            //                 {
+                            //                     host_addr.clone().do_send(
+                            //                         ServerMessage::GameStart(
+                            //                             game_info.turn == Player::One,
+                            //                             Some(host_user.username),
+                            //                         ),
+                            //                     );
+                            //                     joined_addr.clone().do_send(
+                            //                         ServerMessage::GameStart(
+                            //                             game_info.turn == Player::Two,
+                            //                             Some(joined_user.username),
+                            //                         ),
+                            //                     );
+                            //                 } else {
+                            //                     println!("Game not starting :(");
+                            //                     host_addr.clone().do_send(ServerMessage::Error(
+                            //                         Some(SrvMsgError::IncorrectCredentials),
+                            //                     ));
+                            //                     joined_addr.clone().do_send(ServerMessage::Error(
+                            //                         Some(SrvMsgError::IncorrectCredentials),
+                            //                     ));
+                            //                     ctx.stop();
+                            //                 }
+                            //                 fut::ready(())
+                            //             })
+                            //             .wait(ctx_inner);
+                            //         fut::ready(())
+                            //     })
+                            //     .wait(ctx);
+                            // }
+                            // .into_actor(self)
+                            // .wait(ctx);
+                            // println!("after async");
+                            // }
+                            // fut::ready(())
+                            //         })
+                            //         .wait(ctx);
+                            // })
+                            // .wait(ctx);
+                            // return Ok(());
+                        }
+                    }
 
-                Err(())
+                    Ok(())
+                } else {
+                    Err(())
+                }
             }
         }
     }
@@ -226,12 +330,14 @@ impl Lobby {
     pub fn new(
         game_id: GameId,
         lobby_mgr: Addr<LobbyManager>,
+        user_mgr: Addr<user_mgr::UserManager>,
         host_addr: Addr<ClientConnection>,
         maybe_host_id: Option<UserId>,
     ) -> Lobby {
         Lobby {
             game_id,
             lobby_mgr,
+            user_mgr,
             game_state: LobbyState::OnePlayer(host_addr, maybe_host_id),
             last_hb: Instant::now(),
         }

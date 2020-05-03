@@ -5,7 +5,7 @@ use super::lobby::*;
 use super::msg::*;
 use crate::api::users::{
     user::{PlayedGameInfo, UserId},
-    user_manager,
+    user_mgr,
 };
 
 use actix::prelude::*;
@@ -15,10 +15,10 @@ pub struct LobbyManager {
     open_lobby: Option<LobbyInfo>,
     open_lobby_map: LobbyMap,
     closed_lobby_map: LobbyMap,
-    user_mgr: Addr<user_manager::UserManager>,
+    user_mgr: Addr<user_mgr::UserManager>,
 }
 impl LobbyManager {
-    pub fn new(user_mgr: Addr<user_manager::UserManager>) -> LobbyManager {
+    pub fn new(user_mgr: Addr<user_mgr::UserManager>) -> LobbyManager {
         LobbyManager {
             open_lobby: None,
             open_lobby_map: HashMap::new(),
@@ -32,6 +32,7 @@ impl LobbyManager {
         host_addr: Addr<ClientConnection>,
         maybe_host_id: Option<UserId>,
         lobby_mgr_addr: Addr<LobbyManager>,
+        user_mgr_addr: Addr<user_mgr::UserManager>,
         kind: LobbyKind,
     ) -> LobbyRequestResponse {
         let game_id = GameId::generate(
@@ -42,7 +43,14 @@ impl LobbyManager {
                 .chain(self.closed_lobby_map.keys().clone())
                 .collect::<Vec<_>>(),
         );
-        let lobby_addr = Lobby::new(game_id, lobby_mgr_addr, host_addr, maybe_host_id).start();
+        let lobby_addr = Lobby::new(
+            game_id,
+            lobby_mgr_addr,
+            user_mgr_addr,
+            host_addr,
+            maybe_host_id,
+        )
+        .start();
         match kind {
             LobbyKind::Public => {
                 self.open_lobby = Some(LobbyInfo::new(game_id, lobby_addr.clone(), kind));
@@ -129,6 +137,7 @@ impl Handler<LobbyRequest> for LobbyManager {
                             host_addr,
                             maybe_user_id,
                             ctx.address(),
+                            self.user_mgr.clone(),
                             LobbyKind::Public,
                         )
                     };
@@ -138,6 +147,7 @@ impl Handler<LobbyRequest> for LobbyManager {
                         host_addr.clone(),
                         maybe_user_id,
                         ctx.address(),
+                        self.user_mgr.clone(),
                         LobbyKind::Private,
                     );
 
@@ -211,10 +221,9 @@ impl Handler<LobbyManagerMsg> for LobbyManager {
                 self.closed_lobby_map.remove(&game_id);
             }
             PlayedGame(game_info) => {
-                self.user_mgr
-                    .do_send(user_manager::msg::IntUserMgrMsg::Game(
-                        user_manager::msg::GameMsg::PlayedGame(game_info),
-                    ));
+                self.user_mgr.do_send(user_mgr::msg::IntUserMgrMsg::Game(
+                    user_mgr::msg::GameMsg::PlayedGame(game_info),
+                ));
             } /*LobbyManagerMsg::Shutdown => {
                   println!(
                       "LobbyMgr: Shutting down ({} active lobbies).",
@@ -246,7 +255,7 @@ impl Actor for LobbyManager {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         self.user_mgr
-            .do_send(user_manager::msg::IntUserMgrMsg::Backlink(ctx.address()));
+            .do_send(user_mgr::msg::IntUserMgrMsg::Backlink(ctx.address()));
     }
 }
 impl Message for LobbyRequest {

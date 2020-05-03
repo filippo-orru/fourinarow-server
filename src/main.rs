@@ -6,7 +6,7 @@ use actix_files as fs;
 use actix_web::dev::Server;
 use actix_web::{middleware, web, App, HttpResponse, HttpServer};
 
-use api::users::user_manager::UserManager;
+use api::users::user_mgr::UserManager;
 use game::lobby_mgr::LobbyManager;
 
 const BIND_ADDR: &str = "0.0.0.0:40146";

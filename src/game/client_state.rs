@@ -5,7 +5,7 @@ use super::lobby_mgr::{self, *};
 use super::msg::*;
 use crate::api::users::{
     user::UserId,
-    user_manager::{
+    user_mgr::{
         msg::{IntUserMgrMsg, StartPlaying},
         UserManager,
     },

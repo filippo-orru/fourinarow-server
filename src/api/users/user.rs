@@ -208,11 +208,11 @@ pub enum GameKind {
 
 #[derive(Serialize, Deserialize)]
 pub struct PublicUser {
-    id: UserId,
-    username: String,
-    email: Option<String>,
-    game_info: UserGameInfo,
-    friends: Vec<Friend>,
+    pub id: UserId,
+    pub username: String,
+    pub email: Option<String>,
+    pub game_info: UserGameInfo,
+    pub friends: Vec<Friend>,
 }
 impl PublicUser {
     pub fn from(user: User, users: &HashMap<UserId, User>) -> Self {
@@ -227,6 +227,11 @@ impl PublicUser {
                 .filter_map(|id| Friend::from(id, users))
                 .collect(),
         }
+    }
+    pub fn cleaned(mut self) -> Self {
+        self.email = None;
+        self.friends = Vec::new();
+        self
     }
 }
 
@@ -244,4 +249,9 @@ impl Friend {
             game_info: user.game_info,
         })
     }
+}
+
+pub enum UserIdent {
+    Auth(super::user_mgr::UserAuth),
+    Id(UserId),
 }

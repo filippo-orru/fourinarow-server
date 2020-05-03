@@ -1,7 +1,7 @@
 use super::client_state::*;
 use super::lobby_mgr::LobbyManager;
 use super::msg::*;
-use crate::api::users::user_manager::UserManager;
+use crate::api::users::user_mgr::UserManager;
 
 use actix::*;
 use actix_web_actors::ws;

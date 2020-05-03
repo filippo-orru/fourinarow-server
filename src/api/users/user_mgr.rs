@@ -251,7 +251,7 @@ pub mod msg {
         }
     }
 
-    pub struct GetUser(pub UserAuth);
+    pub struct GetUser(pub UserIdent);
     impl Message for GetUser {
         type Result = Option<PublicUser>;
     }
@@ -259,8 +259,17 @@ pub mod msg {
     impl Handler<GetUser> for UserManager {
         type Result = Option<PublicUser>;
         fn handle(&mut self, msg: GetUser, _ctx: &mut Self::Context) -> Self::Result {
-            self.get_user(msg.0)
-                .map(|u| PublicUser::from(u, &self.users))
+            println!("received getuser");
+            match msg.0 {
+                UserIdent::Auth(auth) => self
+                    .get_user(auth)
+                    .map(|u| PublicUser::from(u, &self.users)),
+                UserIdent::Id(user_id) => self
+                    .users
+                    .get(&user_id)
+                    .cloned()
+                    .map(|u| PublicUser::from(u, &self.users)),
+            }
         }
     }
 

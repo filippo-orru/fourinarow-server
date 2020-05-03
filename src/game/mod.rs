@@ -5,7 +5,7 @@ mod lobby;
 pub mod lobby_mgr;
 pub mod msg;
 
-use crate::api::users::user_manager::UserManager;
+use crate::api::users::user_mgr::UserManager;
 pub use client_conn::ClientConnection;
 use lobby_mgr::LobbyManager;
 

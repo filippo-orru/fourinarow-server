@@ -2,14 +2,16 @@ use super::game_info::{GameId, GAME_ID_LEN};
 use super::lobby_mgr::LobbyKind;
 use actix::prelude::*;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum ServerMessage {
     PlaceChip(usize),
     OpponentLeaving,
     OpponentJoining,
     LobbyResponse(GameId),
-    GameStart(bool), // true if recipient goes first
-    GameOver(bool),  // true if recipient won
+    /// ( bool: true if recipient goes first,
+    ///   Option<String>: Set if opponent is logged in
+    GameStart(bool, Option<String>),
+    GameOver(bool), // true if recipient won
     LobbyClosing,
     Okay,
     Error(Option<SrvMsgError>),
@@ -22,7 +24,15 @@ impl ServerMessage {
             OpponentLeaving => "OPP_LEAVING".to_owned(),
             OpponentJoining => "OPP_JOINED".to_owned(),
             LobbyResponse(game_id) => format!("LOBBY_ID:{}", game_id),
-            GameStart(your_turn) => format!("GAME_START:{}", if your_turn { "YOU" } else { "OPP" }),
+            GameStart(your_turn, maybe_username) => format!(
+                "GAME_START:{}{}",
+                if your_turn { "YOU" } else { "OPP" },
+                if let Some(username) = maybe_username {
+                    format!(":{}", username)
+                } else {
+                    "".to_owned()
+                }
+            ),
             GameOver(you_win) => format!("GAME_OVER:{}", if you_win { "YOU" } else { "OPP" }),
             LobbyClosing => "LOBBY_CLOSING".to_owned(),
             Okay => "OKAY".to_owned(),
