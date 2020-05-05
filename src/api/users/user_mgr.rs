@@ -1,5 +1,7 @@
 use super::{super::ApiError, user::*};
-use crate::game::lobby_mgr::LobbyManager;
+use crate::game::client_conn::ClientConnection;
+use crate::game::lobby_mgr::{self, LobbyManager};
+use crate::game::msg::*;
 // use crate::game::msg::SrvMsgError;
 use actix::*;
 use serde::Deserialize;
@@ -144,7 +146,13 @@ pub mod msg {
         }
     }
 
-    pub struct StartPlaying(pub String, pub String);
+    /// Username, Password
+    pub struct StartPlaying {
+        pub username: String,
+        pub password: String,
+        pub addr: Addr<ClientConnection>,
+    }
+    // (pub String, pub String);
     impl Message for StartPlaying {
         type Result = Result<UserId, SrvMsgError>;
     }
@@ -154,12 +162,12 @@ pub mod msg {
             if let Some(user) = self
                 .users
                 .values_mut()
-                .find(|user| user.username == msg.0 && user.password.matches(&msg.1))
+                .find(|user| user.username == msg.username && user.password.matches(&msg.password))
             {
-                if user.playing {
+                if user.playing.is_some() {
                     return Err(SrvMsgError::AlreadyPlaying);
                 } else {
-                    user.playing = true;
+                    user.playing = Some(msg.addr);
                 }
                 Ok(user.id)
             } else {
@@ -214,7 +222,7 @@ pub mod msg {
                 // }
                 StopPlaying(id) => {
                     if let Some(user) = self.users.get_mut(&id) {
-                        user.playing = false;
+                        user.playing = None;
                     }
                 }
             }
@@ -316,6 +324,43 @@ pub mod msg {
                 }
             } else {
                 false
+            }
+        }
+    }
+
+    pub struct BattleReq {
+        pub sender: (Addr<ClientConnection>, UserId),
+        pub receiver: UserId,
+    }
+    impl Message for BattleReq {
+        type Result = ();
+    }
+    impl Handler<BattleReq> for UserManager {
+        type Result = ();
+        fn handle(&mut self, msg: BattleReq, _ctx: &mut Self::Context) {
+            if let BacklinkState::Linked(lobby_mgr) = &self.lobby_mgr_state {
+                // println!("user_mgr: got battlereq");
+                if let Some(receiver) = self.users.get(&msg.receiver) {
+                    if let Some(receiver_addr) = &receiver.playing {
+                        lobby_mgr.do_send(lobby_mgr::BattleReq {
+                            sender: msg.sender,
+                            receiver: (receiver_addr.clone(), msg.receiver),
+                        });
+                    } else {
+                        msg.sender
+                            .0
+                            .do_send(ServerMessage::Error(Some(SrvMsgError::UserNotPlaying)));
+                    }
+                } else {
+                    // println!("no such user: {}", msg.receiver);
+                    msg.sender
+                        .0
+                        .do_send(ServerMessage::Error(Some(SrvMsgError::NoSuchUser)));
+                }
+            } else {
+                msg.sender
+                    .0
+                    .do_send(ServerMessage::Error(Some(SrvMsgError::Internal)));
             }
         }
     }

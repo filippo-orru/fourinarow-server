@@ -1,3 +1,5 @@
+use crate::game::client_conn::ClientConnection;
+use actix::Addr;
 use rand::{thread_rng, Rng};
 use serde::{de, Deserialize, Serialize, Serializer};
 use std::collections::HashMap;
@@ -30,7 +32,8 @@ impl UserId {
         // thread_rng().fill(&mut rand_id);
         UserId(rand_id)
     }
-    fn from_str(s: &str) -> Result<UserId, &str> {
+    pub fn from_str(s: &str) -> Result<UserId, &str> {
+        let s = s.to_lowercase();
         let mut inner: [char; USER_ID_LEN] = ['0'; USER_ID_LEN];
         if s.len() != USER_ID_LEN {
             Err("Could not deserialize UserId")
@@ -79,7 +82,7 @@ const MAX_PASSWORD_LENGTH: usize = 15;
 const SPECIAL_CHARS: &str = "0123456789=!<[>]()-/{}~+%$|#';&+€";
 const INVALID_CHARS: &str = "#:\\\"";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct User {
     // #[serde(deserialize_with = "UserId::deserialize")]
     pub id: UserId,
@@ -89,7 +92,7 @@ pub struct User {
     pub game_info: UserGameInfo,
     pub friends: Vec<UserId>,
     #[serde(skip)]
-    pub playing: bool,
+    pub playing: Option<Addr<ClientConnection>>,
     // login_key: Option<String>,
 }
 impl User {
@@ -101,7 +104,7 @@ impl User {
             email: None,
             game_info: UserGameInfo::new(),
             friends: Vec::new(),
-            playing: false,
+            playing: None,
             // login_key: None,
         }
     }

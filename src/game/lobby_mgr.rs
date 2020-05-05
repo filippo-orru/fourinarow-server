@@ -1,4 +1,5 @@
 use super::client_conn::ClientConnection;
+use super::client_state::ClientStateMessage;
 use super::game_info::GameId;
 use super::game_info::Player;
 use super::lobby::*;
@@ -8,7 +9,7 @@ use crate::api::users::{
     user_mgr,
 };
 
-use actix::prelude::*;
+use actix::*;
 use std::collections::HashMap;
 
 pub struct LobbyManager {
@@ -109,8 +110,10 @@ pub struct LobbyRequestResponse {
 impl Handler<LobbyRequest> for LobbyManager {
     type Result = Result<LobbyRequestResponse, ()>;
     fn handle(&mut self, request: LobbyRequest, ctx: &mut Self::Context) -> Self::Result {
+        // println!("lobby_mgr: got req");
         match request {
             LobbyRequest::NewLobby(host_addr, maybe_user_id, kind) => {
+                // println!("got new lobby req");
                 if let LobbyKind::Public = kind {
                     let lobby_info = if let Some(open_lobby) = self.open_lobby.clone() {
                         self.open_lobby = None;
@@ -250,14 +253,6 @@ impl Handler<LobbyManagerMsg> for LobbyManager {
 //     }
 // }
 
-impl Actor for LobbyManager {
-    type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-        self.user_mgr
-            .do_send(user_mgr::msg::IntUserMgrMsg::Backlink(ctx.address()));
-    }
-}
 impl Message for LobbyRequest {
     type Result = Result<LobbyRequestResponse, ()>;
 }
@@ -267,3 +262,62 @@ impl Message for LobbyRequest {
 //         use fmt::Write;
 //         write!(f, "{}", self.)
 // }
+
+pub struct BattleReq {
+    pub sender: (Addr<ClientConnection>, UserId),
+    pub receiver: (Addr<ClientConnection>, UserId),
+}
+impl Message for BattleReq {
+    type Result = ();
+}
+impl Handler<BattleReq> for LobbyManager {
+    type Result = ();
+    fn handle(&mut self, msg: BattleReq, ctx: &mut Self::Context) {
+        // println!("lobby_mgr: got battlereq");
+        // ctx.notify(LobbyRequest::NewLobby(
+        //     msg.sender.0.clone(),
+        //     Some(msg.sender.1),
+        //     LobbyKind::Private,
+        // ))
+        // // (
+        // // )))
+        // .into_actor(self)
+        // .map(move |res, _, _| {
+        //     if let Ok(Ok(response)) = res {
+        //         msg.receiver
+        //             .0
+        //             .do_send(ServerMessage::BattleReq(msg.sender.1, response.game_id));
+
+        //         msg.sender
+        //             .0
+        //             .do_send(ClientStateMessage::BattleReqJoinLobby(response.game_id));
+        //     }
+        // })
+        // .wait(ctx);
+        // msg.sender.0.do_send(ServerMessage::Okay);
+        let lobby_info = self.create_lobby(
+            msg.sender.0.clone(),
+            Some(msg.sender.1),
+            ctx.address(),
+            self.user_mgr.clone(),
+            LobbyKind::Private,
+        );
+
+        msg.sender.0.do_send(ClientStateMessage::BattleReqJoinLobby(
+            lobby_info.lobby_addr,
+        ));
+        msg.receiver
+            .0
+            .do_send(ServerMessage::BattleReq(msg.sender.1, lobby_info.game_id));
+        // msg.sender.0.do_send()
+    }
+}
+
+impl Actor for LobbyManager {
+    type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        self.user_mgr
+            .do_send(user_mgr::msg::IntUserMgrMsg::Backlink(ctx.address()));
+    }
+}

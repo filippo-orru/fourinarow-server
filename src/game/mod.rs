@@ -1,4 +1,4 @@
-mod client_conn;
+pub mod client_conn;
 mod client_state;
 mod game_info;
 mod lobby;

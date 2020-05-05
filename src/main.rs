@@ -19,10 +19,9 @@ async fn main() {
     env_logger::init();
     let server = start_server();
 
-    if server.await.is_err() {
-        println!("Server terminated with an error!");
-    } else {
-        println!("Server terminated cleanly.");
+    match server.await {
+        Ok(_) => println!("Server terminated cleanly"),
+        Err(err) => println!("Server terminated with an error!.\nErr: {:?}", err,),
     }
 }
 

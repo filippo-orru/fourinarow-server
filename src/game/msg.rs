@@ -1,5 +1,6 @@
 use super::game_info::{GameId, GAME_ID_LEN};
 use super::lobby_mgr::LobbyKind;
+use crate::api::users::user::UserId;
 use actix::prelude::*;
 
 #[derive(Debug, Clone)]
@@ -15,6 +16,7 @@ pub enum ServerMessage {
     LobbyClosing,
     Okay,
     Error(Option<SrvMsgError>),
+    BattleReq(UserId, GameId),
 }
 impl ServerMessage {
     pub fn serialize(self) -> String {
@@ -43,6 +45,9 @@ impl ServerMessage {
                     "ERROR".to_owned()
                 }
             }
+            BattleReq(requesting_id, lobby_id) => {
+                format!("BATTLE_REQ:{}:{}", requesting_id, lobby_id)
+            }
         }
     }
 }
@@ -60,6 +65,9 @@ pub enum SrvMsgError {
     GameNotStarted,
     GameNotOver,
     IncorrectCredentials,
+    NotLoggedIn,
+    UserNotPlaying,
+    NoSuchUser,
     AlreadyPlaying,
     // GameAlreadyOver,
 }
@@ -79,6 +87,9 @@ impl SrvMsgError {
             AlreadyInLobby => "AlreadyInLobby".to_owned(),
             GameNotOver => "GameNotOver".to_owned(),
             IncorrectCredentials => "IncorrectCredentials".to_owned(),
+            NotLoggedIn => "NotLoggedIn".to_owned(),
+            UserNotPlaying => "UserNotPlaying".to_owned(),
+            NoSuchUser => "NoSuchUser".to_owned(),
             AlreadyPlaying => "AlreadyPlaying".to_owned(),
             // GameAlreadyOver => "GameAlreadyOver".to_owned(),
         }
@@ -104,10 +115,12 @@ pub enum PlayerMessage {
     LobbyRequest(LobbyKind),
     LobbyJoin(GameId),
     Login(String, String),
+    BattleReq(UserId),
 }
 
 impl PlayerMessage {
-    pub fn parse(s: &str) -> Option<PlayerMessage> {
+    pub fn parse(orig: &str) -> Option<PlayerMessage> {
+        let s = orig.to_uppercase();
         if s.len() > 200 {
             return None;
         }
@@ -131,9 +144,18 @@ impl PlayerMessage {
         } else if s == "PLAY_AGAIN" {
             return Some(PlayAgainRequest);
         } else if s.starts_with("LOGIN:") {
-            let split: Vec<&str> = s["LOGIN:".len()..].split('#').collect();
+            let split: Vec<&str> = orig.split(':').collect();
+            if split.len() == 3 {
+                return Some(Login(split[1].to_owned(), split[2].to_owned()));
+            }
+        } else if s.starts_with("BATTLE_REQ") {
+            let split: Vec<&str> = orig.split(':').collect();
             if split.len() == 2 {
-                return Some(Login(split[0].to_owned(), split[1].to_owned()));
+                if let Ok(user_id) = UserId::from_str(&split[1]) {
+                    return Some(BattleReq(user_id));
+                }
+                // Err(e) => println!("Error: invalid battlereq userid ({})", e),
+                // }
             }
         }
         None
