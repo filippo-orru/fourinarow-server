@@ -216,6 +216,7 @@ pub struct PublicUser {
     pub email: Option<String>,
     pub game_info: UserGameInfo,
     pub friends: Vec<Friend>,
+    pub playing: bool,
 }
 impl PublicUser {
     pub fn from(user: User, users: &HashMap<UserId, User>) -> Self {
@@ -229,6 +230,7 @@ impl PublicUser {
                 .into_iter()
                 .filter_map(|id| Friend::from(id, users))
                 .collect(),
+            playing: user.playing.is_some(),
         }
     }
     pub fn cleaned(mut self) -> Self {
