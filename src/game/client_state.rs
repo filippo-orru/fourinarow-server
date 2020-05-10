@@ -290,7 +290,7 @@ impl Actor for ClientState {
     type Context = Context<Self>;
 
     fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
-        println!("ClientState: Stopping");
+        // println!("ClientState: Stopping");
         if let Some(id) = self.maybe_user_id {
             self.user_mgr
                 .do_send(user_mgr::msg::IntUserMgrMsg::StopPlaying(id));

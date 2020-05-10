@@ -72,7 +72,11 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ClientConnection 
             }
             ws::Message::Nop => (),
             ws::Message::Text(str_msg) => {
-                print!(">> {:?}", str_msg);
+                if !str_msg.to_lowercase().contains("login") {
+                    print!(">> {:?}", str_msg);
+                } else {
+                    print!(">> LOGIN:***:***");
+                }
                 if let Some(player_msg) = PlayerMessage::parse(&str_msg) {
                     println!();
                     self.client_state_addr
@@ -126,7 +130,7 @@ impl Actor for ClientConnection {
     }
 
     fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
-        println!("ClientConn: Stopping");
+        // println!("ClientConn: Stopping");
         self.client_state_addr.do_send(ClientStateMessage::Close);
         Running::Stop
     }
