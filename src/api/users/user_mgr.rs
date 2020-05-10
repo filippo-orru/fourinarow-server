@@ -267,7 +267,7 @@ pub mod msg {
     impl Handler<GetUser> for UserManager {
         type Result = Option<PublicUser>;
         fn handle(&mut self, msg: GetUser, _ctx: &mut Self::Context) -> Self::Result {
-            println!("received getuser");
+            // println!("received getuser");
             match msg.0 {
                 UserIdent::Auth(auth) => self
                     .get_user(auth)
