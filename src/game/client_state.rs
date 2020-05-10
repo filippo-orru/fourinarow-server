@@ -90,6 +90,10 @@ impl Handler<PlayerMessage> for ClientState {
 
         if let BacklinkState::Linked(ref client_conn_addr) = self.backlinked_state {
             match msg {
+                Ping => {
+                    client_conn_addr.do_send(ServerMessage::Pong);
+                    ok
+                }
                 PlaceChip(column) => {
                     if let ClientConnState::InLobby(player, lobby_addr) = &self.conn_state {
                         lobby_addr.do_send(ClientLobbyMessageNamed {

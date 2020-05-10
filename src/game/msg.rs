@@ -15,6 +15,7 @@ pub enum ServerMessage {
     GameOver(bool), // true if recipient won
     LobbyClosing,
     Okay,
+    Pong,
     Error(Option<SrvMsgError>),
     BattleReq(UserId, GameId),
 }
@@ -38,6 +39,7 @@ impl ServerMessage {
             GameOver(you_win) => format!("GAME_OVER:{}", if you_win { "YOU" } else { "OPP" }),
             LobbyClosing => "LOBBY_CLOSING".to_owned(),
             Okay => "OKAY".to_owned(),
+            Pong => "PONG".to_owned(),
             Error(maybe_msg) => {
                 if let Some(msg) = maybe_msg {
                     format!("ERROR:{}", msg.serialize())
@@ -112,6 +114,7 @@ pub enum PlayerMessage {
     PlaceChip(usize),
     PlayAgainRequest,
     Leaving,
+    Ping,
     LobbyRequest(LobbyKind),
     LobbyJoin(GameId),
     Login(String, String),
@@ -141,6 +144,8 @@ impl PlayerMessage {
             }
         } else if s == "LEAVE" {
             return Some(Leaving);
+        } else if s == "PING" {
+            return Some(Ping);
         } else if s == "PLAY_AGAIN" {
             return Some(PlayAgainRequest);
         } else if s.starts_with("LOGIN:") {
