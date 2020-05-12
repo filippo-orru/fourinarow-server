@@ -11,6 +11,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
     cfg
         // .route("", web::get().to(users))
         .route("", web::get().to(search_user))
+        .route("", web::post().to(register))
         .service(
             web::scope("/me")
                 .route("", web::get().to(me))
