@@ -85,14 +85,18 @@ async fn search_user(
     user_mgr: web::Data<Addr<user_mgr::UserManager>>,
     query: web::Query<SearchQuery>,
 ) -> HR {
-    let user_res: Result<Option<Vec<user::PublicUser>>, MailboxError> = user_mgr
-        .send(user_mgr::msg::SearchUsers(query.search.clone()))
-        .await;
-    if let Ok(Some(users)) = user_res {
-        let cleaned_users = users.into_iter().map(|u| u.cleaned()).collect::<Vec<_>>();
-        HR::Ok().json(cleaned_users)
+    if query.0.search.len() > 25 && query.0.search.len() < 4 {
+        HR::Ok().json(Vec::<user::PublicUser>::new())
     } else {
-        HR::InternalServerError().json(ApiResponse::new("Failed to retrieve users"))
+        let user_res: Result<Option<Vec<user::PublicUser>>, MailboxError> = user_mgr
+            .send(user_mgr::msg::SearchUsers(query.search.clone()))
+            .await;
+        if let Ok(Some(users)) = user_res {
+            let cleaned_users = users.into_iter().map(|u| u.cleaned()).collect::<Vec<_>>();
+            HR::Ok().json(cleaned_users)
+        } else {
+            HR::InternalServerError().json(ApiResponse::new("Failed to retrieve users"))
+        }
     }
 }
 async fn get_user(
