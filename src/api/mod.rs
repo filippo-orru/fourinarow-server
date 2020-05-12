@@ -24,19 +24,28 @@ pub struct ApiResponse<T> {
     content: Option<T>,
 }
 impl ApiResponse<()> {
-    pub fn new(message: &str) -> Self {
+    pub fn new<T: Into<String>>(message: T) -> Self {
         ApiResponse {
-            message: message.to_owned(),
+            message: message.into(),
             content: None,
         }
     }
+    #[allow(unreachable_patterns)]
     pub fn from_api_error(err: ApiError) -> Self {
-        ApiResponse::new(match err {
-            ApiError::PasswordInsufficient => "Registration failed: insufficient password",
-            ApiError::EmailInUse => "Registration failed: email in use",
-            ApiError::UsernameInUse => "Registration failed: username in use",
-            _ => "Registration failed",
-        })
+        ApiResponse::new(
+            String::from("Registration failed")
+                + match err {
+                    ApiError::PasswordInsufficient => ": insufficient password",
+                    ApiError::EmailInUse => ": email in use",
+                    ApiError::UsernameInUse => ": username in use",
+                    ApiError::InvalidUsername => {
+                        ": username invalid (too short, long or containing invalid characters)"
+                    }
+                    ApiError::AlreadyPlaying => ": user is already playing",
+                    ApiError::IncorrectCredentials => ": the credentials are incorrect",
+                    _ => "",
+                },
+        )
     }
 }
 
@@ -51,10 +60,12 @@ impl<T> ApiResponse<T> {
 }
 
 #[allow(dead_code)]
+#[non_exhaustive]
 pub enum ApiError {
     UsernameInUse,
     EmailInUse,
     PasswordInsufficient,
+    InvalidUsername,
     IncorrectCredentials,
     AlreadyPlaying,
 }
