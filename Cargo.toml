@@ -14,6 +14,7 @@ actix = "0.9.0"
 actix-web = {version = "2.0.0", features = ["rustls"] }
 actix-web-actors = "2.0.0"
 actix-files = "0.2.1"
+actix-service = "1.0.5"
 tokio = "0.2.14"
 
 async-std = "1.5.0"
