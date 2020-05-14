@@ -3,7 +3,9 @@ mod game;
 
 use actix::Actor;
 use actix_files as fs;
+use actix_service::Service;
 use actix_web::dev::Server;
+use actix_web::http::{header, HeaderValue};
 use actix_web::{middleware, web, App, HttpResponse, HttpServer};
 
 use api::users::user_mgr::UserManager;
@@ -43,7 +45,26 @@ fn start_server() -> Server {
                         .finish()
                 }),
             )
-            .service(web::scope("/api").configure(api::config))
+            .service(
+                web::scope("/api")
+                    .wrap_fn(|req, srv| {
+                        let fut = srv.call(req);
+                        async {
+                            let mut res = fut.await?;
+                            let headers = res.headers_mut();
+                            headers.insert(
+                                header::CONTENT_TYPE,
+                                HeaderValue::from_static("application/json"),
+                            );
+                            headers.insert(
+                                header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                                HeaderValue::from_static("*"),
+                            );
+                            Ok(res)
+                        }
+                    })
+                    .configure(api::config),
+            )
             .service(web::scope("/game").configure(|cfg| game::config(cfg)))
             .service(fs::Files::new("/", "static/").default_handler(web::to(|| {
                 HttpResponse::Found()
