@@ -99,11 +99,11 @@ pub struct UserAuth {
     username: String,
     password: String,
 }
-// impl UserAuth {
-//     pub fn new(username: String, password: String) -> UserAuth {
-//         UserAuth { username, password }
-//     }
-// }
+impl UserAuth {
+    pub fn new(username: String, password: String) -> UserAuth {
+        UserAuth { username, password }
+    }
+}
 
 pub mod msg {
     use super::*;

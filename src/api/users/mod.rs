@@ -8,12 +8,18 @@ use serde::{Deserialize, Serialize};
 use HttpResponse as HR;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
-    cfg
-        // .route("", web::get().to(users))
-        .route("", web::get().to(search_user))
+    cfg.route("", web::get().to(search_user))
         .route("", web::post().to(register))
         .service(
             web::scope("/me")
+                .route(
+                    "",
+                    web::get()
+                        .guard(guard::fn_guard(|head| {
+                            head.headers().contains_key("Authorization")
+                        }))
+                        .to(me_headers),
+                )
                 .route("", web::get().to(me))
                 .service(web::scope("/friends").configure(friends::config)),
         )
@@ -136,6 +142,47 @@ async fn me(
         }
     } else {
         HR::InternalServerError().json(ApiResponse::new("Failed to retrieve user"))
+    }
+}
+
+/// Method that allows access to /me endpoint using basic auth headers instead of
+/// x-www-form-urlencoded
+///
+/// Logic: get header, convert to str, split into "Basic" and auth, decode auth using
+/// base64, split into "username":"password" and use that to authenticate
+async fn me_headers(req: HttpRequest, user_mgr: web::Data<Addr<user_mgr::UserManager>>) -> HR {
+    if let Some(Ok(auth)) = req.headers().get("Authorization").map(|a| a.to_str()) {
+        let parts = auth.split(' ').collect::<Vec<_>>();
+        if parts.len() == 2 && parts[0] == "Basic" {
+            if let Ok(Ok(uname_pw)) = base64::decode(parts[1]).map(String::from_utf8) {
+                if let [username, password] = uname_pw.split(':').collect::<Vec<_>>()[0..=1] {
+                    let user_res: Result<Option<user::PublicUser>, MailboxError> = user_mgr
+                        .send(user_mgr::msg::GetUser(user::UserIdent::Auth(
+                            user_mgr::UserAuth::new(username.to_owned(), password.to_owned()),
+                        )))
+                        .await;
+                    if let Ok(maybe_user) = user_res {
+                        if let Some(user) = maybe_user {
+                            HR::Ok().json(user)
+                        } else {
+                            HR::Forbidden().json(ApiResponse::new(
+                                "Could not find user. Invalid credentials.",
+                            ))
+                        }
+                    } else {
+                        HR::InternalServerError().json(ApiResponse::new("Failed to retrieve user"))
+                    }
+                } else {
+                    HR::Forbidden().json(ApiResponse::new("Invalid username:pw encoding"))
+                }
+            } else {
+                HR::Forbidden().json(ApiResponse::new("Invalid base64"))
+            }
+        } else {
+            HR::Forbidden().json(ApiResponse::new("Missing auth header"))
+        }
+    } else {
+        HR::Forbidden().json(ApiResponse::new("Missing auth header"))
     }
 }
 
