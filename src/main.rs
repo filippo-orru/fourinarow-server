@@ -60,6 +60,14 @@ fn start_server() -> Server {
                                 header::ACCESS_CONTROL_ALLOW_ORIGIN,
                                 HeaderValue::from_static("*"),
                             );
+                            headers.insert(
+                                header::ACCESS_CONTROL_ALLOW_METHODS,
+                                HeaderValue::from_static("GET, POST, PUT, DELETE"),
+                            );
+                            headers.insert(
+                                header::ACCESS_CONTROL_ALLOW_CREDENTIALS,
+                                HeaderValue::from_static("true"),
+                            );
                             Ok(res)
                         }
                     })
