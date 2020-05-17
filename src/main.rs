@@ -2,10 +2,10 @@ mod api;
 mod game;
 
 use actix::Actor;
+use actix_cors::Cors;
 use actix_files as fs;
-use actix_service::Service;
 use actix_web::dev::Server;
-use actix_web::http::{header, HeaderValue};
+use actix_web::http::header;
 use actix_web::{middleware, web, App, HttpResponse, HttpServer};
 
 use api::users::user_mgr::UserManager;
@@ -47,30 +47,13 @@ fn start_server() -> Server {
             )
             .service(
                 web::scope("/api")
-                    .wrap_fn(|req, srv| {
-                        let fut = srv.call(req);
-                        async {
-                            let mut res = fut.await?;
-                            let headers = res.headers_mut();
-                            headers.insert(
-                                header::CONTENT_TYPE,
-                                HeaderValue::from_static("application/json"),
-                            );
-                            headers.insert(
-                                header::ACCESS_CONTROL_ALLOW_ORIGIN,
-                                HeaderValue::from_static("*"),
-                            );
-                            headers.insert(
-                                header::ACCESS_CONTROL_ALLOW_METHODS,
-                                HeaderValue::from_static("GET, POST, PUT, DELETE"),
-                            );
-                            headers.insert(
-                                header::ACCESS_CONTROL_ALLOW_CREDENTIALS,
-                                HeaderValue::from_static("true"),
-                            );
-                            Ok(res)
-                        }
-                    })
+                    .wrap(
+                        Cors::new()
+                            .allowed_methods(vec!["GET", "POST", "DELETE"])
+                            .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
+                            .max_age(3600)
+                            .finish(),
+                    )
                     .configure(api::config),
             )
             .service(web::scope("/game").configure(|cfg| game::config(cfg)))
