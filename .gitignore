@@ -11,3 +11,4 @@ Cargo.lock
 .rustc_info.json
 data/*
 build.sh
+push_build_restart.bat
