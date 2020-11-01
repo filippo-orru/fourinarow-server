@@ -12,7 +12,7 @@ use actix::*;
 // use futures;
 use std::time::{Duration, Instant};
 
-const LOBBY_TIMEOUT_S: u64 = 5 * 60; // 5 Minutes
+const LOBBY_TIMEOUT_S: u64 = 30 * 60; // 30 Minutes
 
 pub enum LobbyState {
     OnePlayer(Addr<ClientConnection>, Option<UserId>),
