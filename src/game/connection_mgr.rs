@@ -5,7 +5,7 @@ use super::{
     lobby_mgr::{GetIsPlayerWaitingMsg, LobbyManager},
 };
 
-const SEND_SERVER_INFO_INTERVAL_SECONDS: u64 = 10;
+const SEND_SERVER_INFO_INTERVAL_SECONDS: u64 = 15;
 
 pub struct ConnectionManager {
     lobby_mgr: Addr<LobbyManager>,
@@ -17,6 +17,12 @@ impl ConnectionManager {
         ConnectionManager {
             lobby_mgr,
             connections: Vec::new(),
+        }
+    }
+
+    fn send_server_info_to_all(&self, ctx: &mut Context<Self>) {
+        for connection in self.connections.iter() {
+            self.send_server_info(connection.addr.clone(), ctx);
         }
     }
 
@@ -68,8 +74,10 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                     addr: client_state_addr.clone(),
                 });
 
-                self.send_server_info(client_state_addr.clone(), ctx);
+                // Send to everyone (including newly joined)
+                self.send_server_info_to_all(ctx);
 
+                // But also send every x seconds as backup (in case one message gets lost)
                 ctx.run_interval(
                     std::time::Duration::from_secs(SEND_SERVER_INFO_INTERVAL_SECONDS),
                     move |act, ctx| {
@@ -85,6 +93,7 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                     .position(|conn| conn.addr == client_state_addr)
                 {
                     self.connections.remove(index);
+                    self.send_server_info_to_all(ctx);
                 }
             }
         }

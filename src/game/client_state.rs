@@ -85,10 +85,6 @@ impl Handler<ClientStateMessage> for ClientState {
             }
             CurrentServerState(connected_players, player_waiting, requequed) => {
                 if let BacklinkState::Linked(ref client_conn_addr) = self.backlinked_state {
-                    println!(
-                        "receive current server state: {}, {}",
-                        connected_players, player_waiting
-                    );
                     client_conn_addr.do_send(ServerMessage::CurrentServerState(
                         connected_players,
                         player_waiting,
