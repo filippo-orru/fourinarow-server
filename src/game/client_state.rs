@@ -51,7 +51,7 @@ pub enum ClientStateMessage {
     Reset,
     Close, // Triggered by client timeout or disconnect
     BattleReqJoinLobby(Addr<Lobby>),
-    CurrentServerState(usize, bool), // connected players, someone wants to play
+    CurrentServerState(usize, bool, bool), // connected players, someone wants to play, [internal: was requeued]
 }
 
 impl Handler<ClientStateMessage> for ClientState {
@@ -83,12 +83,24 @@ impl Handler<ClientStateMessage> for ClientState {
                     client_conn_addr.do_send(ServerMessage::Okay);
                 }
             }
-            CurrentServerState(connected_players, player_waiting) => {
+            CurrentServerState(connected_players, player_waiting, requequed) => {
                 if let BacklinkState::Linked(ref client_conn_addr) = self.backlinked_state {
+                    println!(
+                        "receive current server state: {}, {}",
+                        connected_players, player_waiting
+                    );
                     client_conn_addr.do_send(ServerMessage::CurrentServerState(
                         connected_players,
                         player_waiting,
                     ));
+                } else {
+                    if requequed {
+                        // Error: message was already requeued once using notify()
+                        // Don't do it again and disconnect client
+                        ctx.stop()
+                    } else {
+                        ctx.notify(CurrentServerState(connected_players, player_waiting, true));
+                    }
                 }
             }
         }

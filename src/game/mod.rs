@@ -1,10 +1,11 @@
 pub mod client_conn;
-mod client_state;
-mod connection_mgr;
-mod game_info;
-mod lobby;
+pub mod connection_mgr;
 pub mod lobby_mgr;
 pub mod msg;
+
+mod client_state;
+mod game_info;
+mod lobby;
 
 use crate::api::users::user_mgr::UserManager;
 pub use client_conn::ClientConnection;

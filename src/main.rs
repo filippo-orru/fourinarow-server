@@ -9,6 +9,7 @@ use actix_web::http::header;
 use actix_web::{middleware, web, App, HttpResponse, HttpServer};
 
 use api::users::user_mgr::UserManager;
+use game::connection_mgr::ConnectionManager;
 use game::lobby_mgr::LobbyManager;
 
 const BIND_ADDR: &str = "0.0.0.0:40146";
@@ -31,11 +32,13 @@ fn start_server() -> Server {
     println!("Running on {}.", BIND_ADDR);
     let user_mgr_addr = UserManager::new().start();
     let lobby_mgr_addr = LobbyManager::new(user_mgr_addr.clone()).start();
+    let connection_mgr_addr = ConnectionManager::new(lobby_mgr_addr.clone()).start();
     HttpServer::new(move || {
         App::new()
             .wrap(middleware::Logger::default())
             .wrap(middleware::Compress::default())
             .data(lobby_mgr_addr.clone())
+            .data(connection_mgr_addr.clone())
             .data(user_mgr_addr.clone())
             .route(
                 "/",

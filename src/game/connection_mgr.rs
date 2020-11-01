@@ -1,16 +1,44 @@
-use actix::{Actor, Addr, Context, Handler, Message};
+use actix::*;
 
-use super::client_state::{ClientState, ClientStateMessage};
+use super::{
+    client_state::{ClientState, ClientStateMessage},
+    lobby_mgr::{GetIsPlayerWaitingMsg, LobbyManager},
+};
+
+const SEND_SERVER_INFO_INTERVAL_SECONDS: u64 = 10;
 
 pub struct ConnectionManager {
+    lobby_mgr: Addr<LobbyManager>,
     connections: Vec<Connection>,
 }
 
 impl ConnectionManager {
-    pub fn new() -> Self {
+    pub fn new(lobby_mgr: Addr<LobbyManager>) -> Self {
         ConnectionManager {
+            lobby_mgr,
             connections: Vec::new(),
         }
+    }
+
+    fn send_server_info(&self, client_state_addr: Addr<ClientState>, ctx: &mut Context<Self>) {
+        // Return info about current server state
+        let number_of_connections = self.connections.len();
+        self.lobby_mgr
+            .send(GetIsPlayerWaitingMsg)
+            .into_actor(self)
+            .then(
+                move |player_waiting_result: Result<bool, MailboxError>, _, _| {
+                    client_state_addr
+                        .clone()
+                        .do_send(ClientStateMessage::CurrentServerState(
+                            number_of_connections,
+                            player_waiting_result.unwrap_or(false),
+                            false,
+                        ));
+                    fut::ready(())
+                },
+            )
+            .wait(ctx);
     }
 }
 
@@ -34,10 +62,23 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
     fn handle(&mut self, msg: ConnectionManagerMsg, ctx: &mut Self::Context) -> Self::Result {
         use ConnectionManagerMsg::*;
         match msg {
-            Hello(client_state_addr) => client_state_addr.do_send(
-                ClientStateMessage::CurrentServerState(self.connections.len(), false),
-            ),
+            Hello(client_state_addr) => {
+                // Add this new connection to list
+                self.connections.push(Connection {
+                    addr: client_state_addr.clone(),
+                });
+
+                self.send_server_info(client_state_addr.clone(), ctx);
+
+                ctx.run_interval(
+                    std::time::Duration::from_secs(SEND_SERVER_INFO_INTERVAL_SECONDS),
+                    move |act, ctx| {
+                        act.send_server_info(client_state_addr.clone(), ctx);
+                    },
+                );
+            }
             Bye(client_state_addr) => {
+                // Remove this connection from list if exists
                 if let Some(index) = self
                     .connections
                     .iter()

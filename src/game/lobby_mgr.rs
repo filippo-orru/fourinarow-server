@@ -194,6 +194,20 @@ impl Handler<LobbyRequest> for LobbyManager {
     }
 }
 
+pub struct GetIsPlayerWaitingMsg;
+
+impl Message for GetIsPlayerWaitingMsg {
+    type Result = bool;
+}
+
+impl Handler<GetIsPlayerWaitingMsg> for LobbyManager {
+    type Result = bool;
+
+    fn handle(&mut self, _: GetIsPlayerWaitingMsg, _ctx: &mut Self::Context) -> Self::Result {
+        return self.open_lobby.is_some();
+    }
+}
+
 pub enum LobbyManagerMsg {
     CloseLobbyMsg(GameId),
     PlayedGame(PlayedGameInfo),
