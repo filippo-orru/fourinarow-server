@@ -1,5 +1,6 @@
 pub mod client_conn;
 mod client_state;
+mod connection_mgr;
 mod game_info;
 mod lobby;
 pub mod lobby_mgr;
@@ -13,6 +14,8 @@ use actix::Addr;
 use actix_web::{web, Error, HttpRequest, HttpResponse};
 use actix_web_actors::ws;
 
+use self::connection_mgr::ConnectionManager;
+
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(web::resource("/").to(websocket_route));
 }
@@ -22,9 +25,14 @@ async fn websocket_route(
     stream: web::Payload,
     lobby_mgr: web::Data<Addr<LobbyManager>>,
     user_mgr: web::Data<Addr<UserManager>>,
+    connection_mgr: web::Data<Addr<ConnectionManager>>,
 ) -> Result<HttpResponse, Error> {
     ws::start(
-        ClientConnection::new(lobby_mgr.get_ref().clone(), user_mgr.get_ref().clone()),
+        ClientConnection::new(
+            lobby_mgr.get_ref().clone(),
+            user_mgr.get_ref().clone(),
+            connection_mgr.get_ref().clone(),
+        ),
         &req,
         stream,
     )

@@ -1,6 +1,7 @@
-use super::client_state::*;
+use super::connection_mgr::ConnectionManager;
 use super::lobby_mgr::LobbyManager;
 use super::msg::*;
+use super::{client_state::*, connection_mgr::ConnectionManagerMsg};
 use crate::api::users::user_mgr::UserManager;
 
 use actix::*;
@@ -17,9 +18,15 @@ pub struct ClientConnection {
 }
 
 impl ClientConnection {
-    pub fn new(lobby_mgr: Addr<LobbyManager>, user_mgr: Addr<UserManager>) -> ClientConnection {
+    pub fn new(
+        lobby_mgr: Addr<LobbyManager>,
+        user_mgr: Addr<UserManager>,
+        connection_mgr: Addr<ConnectionManager>,
+    ) -> ClientConnection {
         // client_conn_addr: Addr<ClientConnection>,
-        let client_state_addr = ClientState::new(lobby_mgr, user_mgr).start();
+        let client_state_addr =
+            ClientState::new(lobby_mgr, user_mgr, connection_mgr.clone()).start();
+        connection_mgr.do_send(ConnectionManagerMsg::Hello(client_state_addr.clone()));
         ClientConnection {
             hb: Instant::now(),
             client_state_addr,

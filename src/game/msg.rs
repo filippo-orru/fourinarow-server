@@ -18,7 +18,9 @@ pub enum ServerMessage {
     Pong,
     Error(Option<SrvMsgError>),
     BattleReq(UserId, GameId),
+    CurrentServerState(usize, bool), // connected players, someone wants to play
 }
+
 impl ServerMessage {
     pub fn serialize(self) -> String {
         use ServerMessage::*;
@@ -50,6 +52,10 @@ impl ServerMessage {
             BattleReq(requesting_id, lobby_id) => {
                 format!("BATTLE_REQ:{}:{}", requesting_id, lobby_id)
             }
+            CurrentServerState(connected_players, player_waiting) => format!(
+                "CURRENT_SERVER_STATE:{}:{}",
+                connected_players, player_waiting
+            ),
         }
     }
 }

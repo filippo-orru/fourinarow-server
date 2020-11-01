@@ -1,8 +1,8 @@
-use super::client_conn::ClientConnection;
-use super::game_info::*;
 use super::lobby::*;
 use super::lobby_mgr::{self, *};
 use super::msg::*;
+use super::{client_conn::ClientConnection, connection_mgr::ConnectionManager};
+use super::{connection_mgr::ConnectionManagerMsg, game_info::*};
 use crate::api::users::{
     user::UserId,
     user_mgr::{self, UserManager},
@@ -13,6 +13,7 @@ use actix::*;
 pub struct ClientState {
     lobby_mgr: Addr<LobbyManager>,
     user_mgr: Addr<UserManager>,
+    connection_mgr: Addr<ConnectionManager>,
     backlinked_state: BacklinkState,
     conn_state: ClientConnState,
     maybe_user_id: Option<UserId>,
@@ -24,10 +25,15 @@ pub enum ClientConnState {
 }
 
 impl ClientState {
-    pub fn new(lobby_mgr: Addr<LobbyManager>, user_mgr: Addr<UserManager>) -> ClientState {
+    pub fn new(
+        lobby_mgr: Addr<LobbyManager>,
+        user_mgr: Addr<UserManager>,
+        connection_mgr: Addr<ConnectionManager>,
+    ) -> ClientState {
         ClientState {
             lobby_mgr,
             user_mgr,
+            connection_mgr,
             backlinked_state: BacklinkState::Waiting,
             conn_state: ClientConnState::Idle,
             maybe_user_id: None,
@@ -45,6 +51,7 @@ pub enum ClientStateMessage {
     Reset,
     Close, // Triggered by client timeout or disconnect
     BattleReqJoinLobby(Addr<Lobby>),
+    CurrentServerState(usize, bool), // connected players, someone wants to play
 }
 
 impl Handler<ClientStateMessage> for ClientState {
@@ -74,6 +81,14 @@ impl Handler<ClientStateMessage> for ClientState {
                 if let BacklinkState::Linked(ref client_conn_addr) = self.backlinked_state {
                     self.conn_state = ClientConnState::InLobby(Player::One, addr);
                     client_conn_addr.do_send(ServerMessage::Okay);
+                }
+            }
+            CurrentServerState(connected_players, player_waiting) => {
+                if let BacklinkState::Linked(ref client_conn_addr) = self.backlinked_state {
+                    client_conn_addr.do_send(ServerMessage::CurrentServerState(
+                        connected_players,
+                        player_waiting,
+                    ));
                 }
             }
         }
@@ -289,12 +304,14 @@ impl Message for ClientStateMessage {
 impl Actor for ClientState {
     type Context = Context<Self>;
 
-    fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
+    fn stopping(&mut self, ctx: &mut Self::Context) -> Running {
         // println!("ClientState: Stopping");
         if let Some(id) = self.maybe_user_id {
             self.user_mgr
                 .do_send(user_mgr::msg::IntUserMgrMsg::StopPlaying(id));
         }
+        self.connection_mgr
+            .do_send(ConnectionManagerMsg::Bye(ctx.address()));
         Running::Stop
     }
 }
