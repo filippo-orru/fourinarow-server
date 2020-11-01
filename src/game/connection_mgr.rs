@@ -5,7 +5,7 @@ use super::{
     lobby_mgr::{GetIsPlayerWaitingMsg, LobbyManager},
 };
 
-const SEND_SERVER_INFO_INTERVAL_SECONDS: u64 = 15;
+const SEND_SERVER_INFO_INTERVAL_SECONDS: u64 = 4;
 
 pub struct ConnectionManager {
     lobby_mgr: Addr<LobbyManager>,
@@ -77,7 +77,7 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                 // Send to everyone (including newly joined)
                 self.send_server_info_to_all(ctx);
 
-                // But also send every x seconds as backup (in case one message gets lost)
+                // But also send every x seconds because player_is_waiting is not reactive (or in case one message gets lost)
                 ctx.run_interval(
                     std::time::Duration::from_secs(SEND_SERVER_INFO_INTERVAL_SECONDS),
                     move |act, ctx| {
