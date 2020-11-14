@@ -89,15 +89,13 @@ impl Handler<ClientStateMessage> for ClientState {
                         connected_players,
                         player_waiting,
                     ));
-                } else {
-                    if requequed {
+                } else if requequed {
                         // Error: message was already requeued once using notify()
                         // Don't do it again and disconnect client
                         ctx.stop()
                     } else {
                         ctx.notify(CurrentServerState(connected_players, player_waiting, true));
                     }
-                }
             }
         }
         Ok(())
@@ -288,6 +286,18 @@ impl Handler<PlayerMessage> for ClientState {
                         err
                     }
                 }
+                ChatMessage(msg) => {
+                    if let ClientConnState::InLobby(player, lobby_addr) = &self.conn_state {
+                        lobby_addr.do_send(ClientLobbyMessageNamed {
+                            sender: *player,
+                            msg: ClientLobbyMessage::ChatMessage(msg),
+                        });
+                    } else {
+                        self.connection_mgr.do_send(ConnectionManagerMsg::ChatMessage(ctx.address(), msg));
+                    }
+                    client_conn_addr.do_send(ServerMessage::Okay);
+                    ok
+                }
             }
         } else {
             err
@@ -295,15 +305,18 @@ impl Handler<PlayerMessage> for ClientState {
     }
 }
 
-// impl Handler<ServerMessage> for ClientState {
-//     type Result = Result<(),()>;
+impl Handler<ServerMessage> for ClientState {
+    type Result = Result<(),()>;
 
-//     fn handle(&mut self, msg: ServerMessage, ctx: &mut Self::Context) -> Self::Result {
-//         match msg {
-//             ServerMessage::Reset
-//         }
-//     }
-// }
+    fn handle(&mut self, msg: ServerMessage, _: &mut Self::Context) -> Self::Result {
+        if let BacklinkState::Linked(ref client_conn_addr) = self.backlinked_state {
+            client_conn_addr.do_send(msg);
+            Ok(())
+        }else {
+             Err(())
+         }
+    }
+}
 
 impl Message for ClientStateMessage {
     type Result = Result<(), ()>;

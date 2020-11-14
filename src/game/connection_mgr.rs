@@ -1,3 +1,4 @@
+use crate::game::msg::ServerMessage;
 use actix::*;
 
 use super::{
@@ -22,7 +23,7 @@ impl ConnectionManager {
 
     fn send_server_info_to_all(&self, ctx: &mut Context<Self>) {
         for connection in self.connections.iter() {
-            self.send_server_info(connection.addr.clone(), ctx);
+            self.send_server_info(connection.state_addr.clone(), ctx);
         }
     }
 
@@ -35,7 +36,6 @@ impl ConnectionManager {
             .then(
                 move |player_waiting_result: Result<bool, MailboxError>, _, _| {
                     client_state_addr
-                        .clone()
                         .do_send(ClientStateMessage::CurrentServerState(
                             number_of_connections,
                             player_waiting_result.unwrap_or(false),
@@ -50,12 +50,13 @@ impl ConnectionManager {
 
 #[derive(Clone)]
 struct Connection {
-    addr: Addr<ClientState>,
+    state_addr: Addr<ClientState>
 }
 
 pub enum ConnectionManagerMsg {
     Hello(Addr<ClientState>), // sent when client first connects
     Bye(Addr<ClientState>),   // sent when client disconnects
+    ChatMessage(Addr<ClientState>, String), // global chat message (sender_addr, msg)
 }
 
 impl Message for ConnectionManagerMsg {
@@ -71,7 +72,7 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
             Hello(client_state_addr) => {
                 // Add this new connection to list
                 self.connections.push(Connection {
-                    addr: client_state_addr.clone(),
+                    state_addr: client_state_addr.clone()
                 });
 
                 // Send to everyone (including newly joined)
@@ -90,10 +91,17 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                 if let Some(index) = self
                     .connections
                     .iter()
-                    .position(|conn| conn.addr == client_state_addr)
+                    .position(|conn| conn.state_addr == client_state_addr)
                 {
                     self.connections.remove(index);
                     self.send_server_info_to_all(ctx);
+                }
+            }
+            ChatMessage(client_state_addr, msg) => {
+                for connection in self.connections.iter() {
+                    if connection.state_addr != client_state_addr {
+                    connection.state_addr.do_send(ServerMessage::ChatMessage(true, msg.clone()));
+                    }
                 }
             }
         }

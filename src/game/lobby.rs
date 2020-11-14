@@ -60,6 +60,7 @@ pub enum ClientLobbyMessage {
     PlayerLeaving,
     PlayAgainRequest,
     PlaceChip(usize),
+    ChatMessage(String),
 }
 
 impl Message for ClientLobbyMessageNamed {
@@ -164,7 +165,7 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                                             game_type
                                         {
                                             let (winner, loser) = winner
-                                                .select_both(host_id.clone(), joined_id.clone());
+                                                .select_both(*host_id, *joined_id);
                                             println!("{} won against {}", winner, loser);
                                             let game_info = PlayedGameInfo::new(winner, loser);
                                             self.lobby_mgr
@@ -189,6 +190,14 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                     Err(())
                 }
             },
+            ChatMessage(msg) => match self.game_state {
+                LobbyState::TwoPlayers(_, ref host_addr, ref client_addr) => {
+                    let msg_recipient = msg_named.sender.other().select(host_addr, client_addr);
+                    msg_recipient.do_send(ServerMessage::ChatMessage(false, msg));
+                    Ok(())
+                }
+                _ => {Err(())}
+            }
         }
     }
 }

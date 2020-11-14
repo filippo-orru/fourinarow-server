@@ -15,6 +15,7 @@ const HB_TIMEOUT: u64 = 8;
 pub struct ClientConnection {
     hb: Instant,
     client_state_addr: Addr<ClientState>,
+    connection_mgr: Addr<ConnectionManager>
 }
 
 impl ClientConnection {
@@ -26,10 +27,10 @@ impl ClientConnection {
         // client_conn_addr: Addr<ClientConnection>,
         let client_state_addr =
             ClientState::new(lobby_mgr, user_mgr, connection_mgr.clone()).start();
-        connection_mgr.do_send(ConnectionManagerMsg::Hello(client_state_addr.clone()));
         ClientConnection {
             hb: Instant::now(),
             client_state_addr,
+            connection_mgr,
         }
     }
     fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {
@@ -132,6 +133,8 @@ impl Actor for ClientConnection {
         self.hb(ctx);
         self.client_state_addr
             .do_send(ClientStateMessage::BackLink(ctx.address()));
+        
+        self.connection_mgr.do_send(ConnectionManagerMsg::Hello(self.client_state_addr.clone()));
 
         // self.game_state = GameState::WaitingInLobby(PlayerInfo(Addr::new(AddressSender::)));
     }

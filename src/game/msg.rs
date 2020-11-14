@@ -19,6 +19,7 @@ pub enum ServerMessage {
     Error(Option<SrvMsgError>),
     BattleReq(UserId, GameId),
     CurrentServerState(usize, bool), // connected players, someone wants to play
+    ChatMessage(bool, String), // global, message
 }
 
 impl ServerMessage {
@@ -56,6 +57,10 @@ impl ServerMessage {
                 "CURRENT_SERVER_STATE:{}:{}",
                 connected_players, player_waiting
             ),
+            ChatMessage(is_global,message) => {
+                let encoded_message = base64::encode_config(message, base64::STANDARD);
+                format!("CHAT_MSG:{}:{}", is_global, encoded_message)
+            },
         }
     }
 }
@@ -125,6 +130,7 @@ pub enum PlayerMessage {
     LobbyJoin(GameId),
     Login(String, String),
     BattleReq(UserId),
+    ChatMessage(String),
 }
 
 impl PlayerMessage {
@@ -167,6 +173,13 @@ impl PlayerMessage {
                 }
                 // Err(e) => println!("Error: invalid battlereq userid ({})", e),
                 // }
+            }
+        } else if s.starts_with("CHAT_MSG") {
+            let split: Vec<&str> = orig.split(':').collect();
+            if split.len() == 2 {
+                if let Ok(Ok(decoded_msg)) = base64::decode_config(split[1], base64::STANDARD).map(String::from_utf8) {
+                    return Some(ChatMessage(decoded_msg));
+                }
             }
         }
         None

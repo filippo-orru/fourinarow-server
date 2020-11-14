@@ -16,7 +16,7 @@ actix-service = "1.0.5"
 actix-cors = "0.2.0"
 tokio = "0.2.14"
 
-base64 = "0.12.1"
+base64 = "0.13.0"
 async-std = "1.5.0"
 serde = "*"
 serde_json = "*"
