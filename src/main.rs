@@ -51,11 +51,10 @@ fn start_server() -> Server {
             .service(
                 web::scope("/api")
                     .wrap(
-                        Cors::new()
+                        Cors::default()
                             .allowed_methods(vec!["GET", "POST", "DELETE"])
                             .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
-                            .max_age(3600)
-                            .finish(),
+                            .max_age(3600),
                     )
                     .configure(api::config),
             )

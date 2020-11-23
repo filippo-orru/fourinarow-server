@@ -237,7 +237,7 @@ mod friends {
     pub async fn delete(
         user_mgr: web::Data<Addr<user_mgr::UserManager>>,
         auth: web::Form<user_mgr::UserAuth>,
-        id: web::Path<(UserId,)>,
+        id: web::Path<UserId>,
     ) -> HR {
         modify(
             FriendsAction::Delete(id.0),

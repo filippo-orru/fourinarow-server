@@ -35,8 +35,7 @@ impl ConnectionManager {
             .into_actor(self)
             .then(
                 move |player_waiting_result: Result<bool, MailboxError>, _, _| {
-                    client_state_addr
-                        .do_send(ClientStateMessage::CurrentServerState(
+                    client_state_addr.do_send(ClientStateMessage::CurrentServerState(
                             number_of_connections,
                             player_waiting_result.unwrap_or(false),
                             false,
@@ -50,12 +49,12 @@ impl ConnectionManager {
 
 #[derive(Clone)]
 struct Connection {
-    state_addr: Addr<ClientState>
+    state_addr: Addr<ClientState>,
 }
 
 pub enum ConnectionManagerMsg {
-    Hello(Addr<ClientState>), // sent when client first connects
-    Bye(Addr<ClientState>),   // sent when client disconnects
+    Hello(Addr<ClientState>),               // sent when client first connects
+    Bye(Addr<ClientState>),                 // sent when client disconnects
     ChatMessage(Addr<ClientState>, String), // global chat message (sender_addr, msg)
 }
 
@@ -72,7 +71,7 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
             Hello(client_state_addr) => {
                 // Add this new connection to list
                 self.connections.push(Connection {
-                    state_addr: client_state_addr.clone()
+                    state_addr: client_state_addr.clone(),
                 });
 
                 // Send to everyone (including newly joined)
@@ -100,7 +99,9 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
             ChatMessage(client_state_addr, msg) => {
                 for connection in self.connections.iter() {
                     if connection.state_addr != client_state_addr {
-                    connection.state_addr.do_send(ServerMessage::ChatMessage(true, msg.clone()));
+                        connection
+                            .state_addr
+                            .do_send(ServerMessage::ChatMessage(true, msg.clone()));
                     }
                 }
             }
