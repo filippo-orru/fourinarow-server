@@ -78,12 +78,13 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                 self.send_server_info_to_all(ctx);
 
                 // But also send every x seconds because player_is_waiting is not reactive (or in case one message gets lost)
-                ctx.run_interval(
-                    std::time::Duration::from_secs(SEND_SERVER_INFO_INTERVAL_SECONDS),
-                    move |act, ctx| {
-                        act.send_server_info(client_state_addr.clone(), ctx);
-                    },
-                );
+                // <- Commented out for performance reasons ->
+                // ctx.run_interval(
+                //     std::time::Duration::from_secs(SEND_SERVER_INFO_INTERVAL_SECONDS),
+                //     move |act, ctx| {
+                //         act.send_server_info(client_state_addr.clone(), ctx);
+                //     },
+                // );
             }
             Bye(client_state_addr) => {
                 // Remove this connection from list if exists
