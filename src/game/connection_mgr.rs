@@ -3,7 +3,7 @@ use actix::*;
 
 use super::{
     client_state::{ClientState, ClientStateMessage},
-    lobby_mgr::{GetIsPlayerWaitingMsg, LobbyManager},
+    lobby_mgr::LobbyManager,
 };
 
 const SEND_SERVER_INFO_INTERVAL_SECONDS: u64 = 2;
@@ -16,6 +16,7 @@ enum BacklinkState {
 pub struct ConnectionManager {
     lobby_mgr_state: BacklinkState,
     connections: Vec<Connection>,
+    player_in_queue: bool,
     send_server_info_batched: bool,
 }
 
@@ -24,6 +25,7 @@ impl ConnectionManager {
         ConnectionManager {
             lobby_mgr_state: BacklinkState::Unlinked,
             connections: Vec::new(),
+            player_in_queue: false,
             send_server_info_batched: false,
         }
     }
@@ -34,26 +36,15 @@ impl ConnectionManager {
         }
     }
 
-    fn send_server_info(&self, client_state_addr: Addr<ClientState>, ctx: &mut Context<Self>) {
-        if let BacklinkState::Linked(lobby_mgr_addr) = &self.lobby_mgr_state {
+    fn send_server_info(&self, client_state_addr: Addr<ClientState>, _ctx: &mut Context<Self>) {
         // Return info about current server state
         let number_of_connections = self.connections.len();
-            lobby_mgr_addr
-            .send(GetIsPlayerWaitingMsg)
-            .into_actor(self)
-            .then(
-                move |player_waiting_result: Result<bool, MailboxError>, _, _| {
                     client_state_addr.do_send(ClientStateMessage::CurrentServerState(
                             number_of_connections,
-                            player_waiting_result.unwrap_or(false),
+            self.player_in_queue,
                             false,
                         ));
-                    fut::ready(())
-                },
-            )
-            .wait(ctx);
     }
-}
 }
 
 #[derive(Clone)]
@@ -64,7 +55,7 @@ struct Connection {
 pub enum ConnectionManagerMsg {
     Hello(Addr<ClientState>),               // sent when client first connects
     Bye(Addr<ClientState>),                 // sent when client disconnects
-    Update,                                 // sent by lobbyManager when clients should be notified
+    Update(bool), // (player_in_queue): sent by lobbyManager when clients should be notified
     ChatMessage(Addr<ClientState>, String), // global chat message (sender_addr, msg)
     Backlink(Addr<LobbyManager>), // sent by lobbyManager when it starts to form bidirectional link
 }
@@ -100,7 +91,8 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                     self.send_server_info_batched = true;
                 }
             }
-            Update => {
+            Update(player_in_lobby) => {
+                self.player_in_queue = player_in_lobby;
                 self.send_server_info_batched = true;
             }
             ChatMessage(client_state_addr, msg) => {

@@ -136,6 +136,9 @@ impl Handler<LobbyRequest> for LobbyManager {
                         self.closed_lobby_map
                             .insert(open_lobby.game_id, open_lobby.clone());
 
+                        self.connection_mgr
+                            .do_send(ConnectionManagerMsg::Update(self.open_lobby.is_some()));
+
                         LobbyRequestResponse {
                             player: Player::Two,
                             game_id: open_lobby.game_id,
@@ -143,14 +146,16 @@ impl Handler<LobbyRequest> for LobbyManager {
                         }
                     } else {
                         host_addr.do_send(ServerMessage::Okay);
-                        self.connection_mgr.do_send(ConnectionManagerMsg::Update);
-                        self.create_lobby(
+                        let response = self.create_lobby(
                             host_addr,
                             maybe_user_id,
                             ctx.address(),
                             self.user_mgr.clone(),
                             LobbyKind::Public,
-                        )
+                        );
+                        self.connection_mgr
+                            .do_send(ConnectionManagerMsg::Update(self.open_lobby.is_some()));
+                        response
                     };
                     Ok(lobby_info)
                 } else {
@@ -243,7 +248,8 @@ impl Handler<LobbyManagerMsg> for LobbyManager {
 
                 self.open_lobby_map.remove(&game_id);
                 self.closed_lobby_map.remove(&game_id);
-                self.connection_mgr.do_send(ConnectionManagerMsg::Update);
+                self.connection_mgr
+                    .do_send(ConnectionManagerMsg::Update(self.open_lobby.is_some()));
             }
 
             PlayedGame(game_info) => {
