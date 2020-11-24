@@ -293,7 +293,8 @@ impl Handler<PlayerMessage> for ClientState {
                             msg: ClientLobbyMessage::ChatMessage(msg),
                         });
                     } else {
-                        self.connection_mgr.do_send(ConnectionManagerMsg::ChatMessage(ctx.address(), msg));
+                        self.connection_mgr
+                            .do_send(ConnectionManagerMsg::ChatMessage(ctx.address(), msg));
                     }
                     client_conn_addr.do_send(ServerMessage::Okay);
                     ok
@@ -306,13 +307,13 @@ impl Handler<PlayerMessage> for ClientState {
 }
 
 impl Handler<ServerMessage> for ClientState {
-    type Result = Result<(),()>;
+    type Result = Result<(), ()>;
 
     fn handle(&mut self, msg: ServerMessage, _: &mut Self::Context) -> Self::Result {
         if let BacklinkState::Linked(ref client_conn_addr) = self.backlinked_state {
             client_conn_addr.do_send(msg);
             Ok(())
-        }else {
+        } else {
              Err(())
          }
     }

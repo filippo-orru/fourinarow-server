@@ -1,5 +1,6 @@
 use super::client_conn::ClientConnection;
 use super::client_state::ClientStateMessage;
+use super::connection_mgr::{ConnectionManager, ConnectionManagerMsg};
 use super::game_info::GameId;
 use super::game_info::Player;
 use super::lobby::*;
@@ -17,15 +18,20 @@ pub struct LobbyManager {
     open_lobby_map: LobbyMap,
     closed_lobby_map: LobbyMap,
     user_mgr: Addr<user_mgr::UserManager>,
+    connection_mgr: Addr<ConnectionManager>,
 }
 
 impl LobbyManager {
-    pub fn new(user_mgr: Addr<user_mgr::UserManager>) -> LobbyManager {
+    pub fn new(
+        user_mgr: Addr<user_mgr::UserManager>,
+        connection_mgr: Addr<ConnectionManager>,
+    ) -> LobbyManager {
         LobbyManager {
             open_lobby: None,
             open_lobby_map: HashMap::new(),
             closed_lobby_map: HashMap::new(),
             user_mgr,
+            connection_mgr,
         }
     }
 
@@ -137,6 +143,7 @@ impl Handler<LobbyRequest> for LobbyManager {
                         }
                     } else {
                         host_addr.do_send(ServerMessage::Okay);
+                        self.connection_mgr.do_send(ConnectionManagerMsg::Update);
                         self.create_lobby(
                             host_addr,
                             maybe_user_id,
@@ -231,13 +238,14 @@ impl Handler<LobbyManagerMsg> for LobbyManager {
                 {
                     if open_game_id == game_id {
                         self.open_lobby = None;
-                        return;
                     }
                 }
 
                 self.open_lobby_map.remove(&game_id);
                 self.closed_lobby_map.remove(&game_id);
+                self.connection_mgr.do_send(ConnectionManagerMsg::Update);
             }
+
             PlayedGame(game_info) => {
                 self.user_mgr.do_send(user_mgr::msg::IntUserMgrMsg::Game(
                     user_mgr::msg::GameMsg::PlayedGame(game_info),
@@ -334,5 +342,8 @@ impl Actor for LobbyManager {
     fn started(&mut self, ctx: &mut Self::Context) {
         self.user_mgr
             .do_send(user_mgr::msg::IntUserMgrMsg::Backlink(ctx.address()));
+
+        self.connection_mgr
+            .do_send(ConnectionManagerMsg::Backlink(ctx.address()));
     }
 }

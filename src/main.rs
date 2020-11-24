@@ -31,8 +31,9 @@ async fn main() {
 fn start_server() -> Server {
     println!("Running on {}.", BIND_ADDR);
     let user_mgr_addr = UserManager::new().start();
-    let lobby_mgr_addr = LobbyManager::new(user_mgr_addr.clone()).start();
-    let connection_mgr_addr = ConnectionManager::new(lobby_mgr_addr.clone()).start();
+    let connection_mgr_addr = ConnectionManager::new().start();
+    let lobby_mgr_addr =
+        LobbyManager::new(user_mgr_addr.clone(), connection_mgr_addr.clone()).start();
     HttpServer::new(move || {
         App::new()
             .wrap(middleware::Logger::default())
