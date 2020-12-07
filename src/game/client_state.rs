@@ -90,12 +90,12 @@ impl Handler<ClientStateMessage> for ClientState {
                         player_waiting,
                     ));
                 } else if requequed {
-                        // Error: message was already requeued once using notify()
-                        // Don't do it again and disconnect client
-                        ctx.stop()
-                    } else {
-                        ctx.notify(CurrentServerState(connected_players, player_waiting, true));
-                    }
+                    // Error: message was already requeued once using notify()
+                    // Don't do it again and disconnect client
+                    ctx.stop()
+                } else {
+                    ctx.notify(CurrentServerState(connected_players, player_waiting, true));
+                }
             }
         }
         Ok(())
@@ -314,8 +314,8 @@ impl Handler<ServerMessage> for ClientState {
             client_conn_addr.do_send(msg);
             Ok(())
         } else {
-             Err(())
-         }
+            Err(())
+        }
     }
 }
 

@@ -12,15 +12,22 @@ use api::users::user_mgr::UserManager;
 use game::connection_mgr::ConnectionManager;
 use game::lobby_mgr::LobbyManager;
 
-const BIND_ADDR: &str = "0.0.0.0:40146";
+const DEFAULT_BIND_ADDR: &str = "127.0.0.1:40146";
 
 #[actix_rt::main]
 async fn main() {
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", "actix_web=info");
     }
+    let args: Vec<String> = std::env::args().collect();
+    let bind_addr = if let Some(port) = args.get(1) {
+        format!("127.0.0.1:{}", port)
+    } else {
+        DEFAULT_BIND_ADDR.to_string()
+    };
+
     env_logger::init();
-    let server = start_server();
+    let server = start_server(&bind_addr);
 
     match server.await {
         Ok(_) => println!("Server terminated cleanly"),
@@ -28,8 +35,8 @@ async fn main() {
     }
 }
 
-fn start_server() -> Server {
-    println!("Running on {}.", BIND_ADDR);
+fn start_server(bind_addr: &str) -> Server {
+    println!("Running on {}.", bind_addr);
     let user_mgr_addr = UserManager::new().start();
     let connection_mgr_addr = ConnectionManager::new().start();
     let lobby_mgr_addr =
@@ -67,7 +74,7 @@ fn start_server() -> Server {
             })))
             .default_service(web::to(HttpResponse::NotFound))
     })
-    .bind(BIND_ADDR)
+    .bind(bind_addr)
     .unwrap()
     .run()
 }

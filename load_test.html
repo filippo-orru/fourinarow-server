@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<meta charset="utf-8" />
+<title>WebSocket Test</title>
+<script language="javascript" type="text/javascript">
+
+    let connCount = 50;
+    // let wsUri = "ws://localhost:40146/game/";
+    let wsUri = "wss://fourinarow.ml/game/";
+    var output;
+
+    function init() {
+        output = document.getElementById("output");
+        openWebsocket(1);
+    }
+
+    function openWebsocket(i) {
+        writeToScreen("Opening " + i)
+        let websocket = new WebSocket(wsUri);
+        websocket.onopen = function (evt) { onOpen(evt, i) };
+        websocket.onclose = function (evt) { onClose(evt, i) };
+        // websocket.onmessage = function (evt) { onMessage(evt) };
+        websocket.onerror = function (evt) { onError(evt, i) };
+        // for (let i = 0; i < 1000; i++) {
+        //     setTimeout(() => {
+        //     }, i * 100);
+        // }
+    }
+
+    function onOpen(evt, i) {
+        writeToScreen("Connected " + i);
+        if (i < connCount) {
+            openWebsocket(i + 1)
+        }
+        // doSend("WebSocket rocks");
+    }
+
+    function onClose(evt, i) {
+        writeToScreen("Disconnected " + i);
+    }
+
+    function onMessage(evt) {
+        writeToScreen('<<' + evt.data);
+        // websocket.close();
+    }
+
+    function onError(evt, i) {
+        writeToScreen('ERROR: ' + evt.data + ' ' + i);
+    }
+
+    function doSend(message) {
+        writeToScreen(">> " + message);
+        websocket.send(message);
+    }
+
+    function writeToScreen(message) {
+        var pre = document.createElement("p");
+        pre.style.wordWrap = "break-word";
+        pre.innerText = message;
+        output.appendChild(pre);
+        window.scrollTo(0, document.body.scrollHeight);
+    }
+
+    window.addEventListener("load", init, false);
+
+</script>
+
+<h2>WebSocket Test</h2>
+
+<div id="output"></div>

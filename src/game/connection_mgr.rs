@@ -39,11 +39,11 @@ impl ConnectionManager {
     fn send_server_info(&self, client_state_addr: Addr<ClientState>, _ctx: &mut Context<Self>) {
         // Return info about current server state
         let number_of_connections = self.connections.len();
-                    client_state_addr.do_send(ClientStateMessage::CurrentServerState(
-                            number_of_connections,
+        client_state_addr.do_send(ClientStateMessage::CurrentServerState(
+            number_of_connections,
             self.player_in_queue,
-                            false,
-                        ));
+            false,
+        ));
     }
 }
 
@@ -106,7 +106,7 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
             }
             Backlink(lobby_mgr_addr) => {
                 self.lobby_mgr_state = BacklinkState::Linked(lobby_mgr_addr)
-        }
+            }
         }
         Ok(())
     }
@@ -116,6 +116,25 @@ impl Actor for ConnectionManager {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        // let command = if cfg!(target_os = "macos") {
+        //     "top -l 1 -stats \"cpu, command\" | grep fourinarow | awk '{print $1}'"
+        // } else if cfg!(target_os = "linux") {
+        //     "top -b -n 1 -d 0.2 | grep fourinarow | awk '{print $9}'"
+        // } else {
+        //     return;
+        // };
+        // ctx.run_interval(clock::Duration::from_secs(4), move |_, _| {
+        //     let output = std::process::Command::new(command)
+        //         .output()
+        //         .map(|o| String::from_utf8(o.stdout))
+        //         .expect("failed to run top command")
+        //         .expect("failed to get top command output")
+        //         .parse::<f32>()
+        //         .expect("failed to parse top cpu usage");
+
+        //     println!("Top output: {:?}", output);
+        // });
+
         // Send currentserverinfo to everyone every x seconds (only if change occurred)
         ctx.run_interval(
             std::time::Duration::from_secs(SEND_SERVER_INFO_INTERVAL_SECONDS),
