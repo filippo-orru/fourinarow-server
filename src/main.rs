@@ -29,7 +29,9 @@ async fn main() {
     env_logger::init();
     let server = start_server(&bind_addr);
 
-    match server.await {
+    let res = server.await;
+    println!();
+    match res {
         Ok(_) => println!("Server terminated cleanly"),
         Err(err) => println!("Server terminated with an error!.\nErr: {:?}", err,),
     }
@@ -75,6 +77,6 @@ fn start_server(bind_addr: &str) -> Server {
             .default_service(web::to(HttpResponse::NotFound))
     })
     .bind(bind_addr)
-    .unwrap()
+    .expect("Failed to bind address.")
     .run()
 }

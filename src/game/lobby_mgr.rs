@@ -1,4 +1,4 @@
-use super::client_conn::ClientConnection;
+use super::client_adapter::ClientAdapter;
 use super::client_state::ClientStateMessage;
 use super::connection_mgr::{ConnectionManager, ConnectionManagerMsg};
 use super::game_info::GameId;
@@ -37,7 +37,7 @@ impl LobbyManager {
 
     fn create_lobby(
         &mut self,
-        host_addr: Addr<ClientConnection>,
+        host_addr: Addr<ClientAdapter>,
         maybe_host_id: Option<UserId>,
         lobby_mgr_addr: Addr<LobbyManager>,
         user_mgr_addr: Addr<user_mgr::UserManager>,
@@ -104,8 +104,8 @@ pub enum LobbyKind {
 }
 
 pub enum LobbyRequest {
-    NewLobby(Addr<ClientConnection>, Option<UserId>, LobbyKind),
-    JoinLobby(GameId, Addr<ClientConnection>, Option<UserId>, LobbyKind),
+    NewLobby(Addr<ClientAdapter>, Option<UserId>, LobbyKind),
+    JoinLobby(GameId, Addr<ClientAdapter>, Option<UserId>, LobbyKind),
 }
 
 pub struct LobbyRequestResponse {
@@ -293,8 +293,8 @@ impl Message for LobbyRequest {
 // }
 
 pub struct BattleReq {
-    pub sender: (Addr<ClientConnection>, UserId),
-    pub receiver: (Addr<ClientConnection>, UserId),
+    pub sender: (Addr<ClientAdapter>, UserId),
+    pub receiver: (Addr<ClientAdapter>, UserId),
 }
 impl Message for BattleReq {
     type Result = ();

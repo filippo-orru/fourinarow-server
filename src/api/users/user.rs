@@ -1,4 +1,4 @@
-use crate::game::client_conn::ClientConnection;
+use crate::game::client_adapter::ClientAdapter;
 use actix::Addr;
 use rand::{thread_rng, Rng};
 use serde::{de, Deserialize, Serialize, Serializer};
@@ -92,7 +92,7 @@ pub struct User {
     pub game_info: UserGameInfo,
     pub friends: Vec<UserId>,
     #[serde(skip)]
-    pub playing: Option<Addr<ClientConnection>>,
+    pub playing: Option<Addr<ClientAdapter>>,
     // login_key: Option<String>,
 }
 impl User {

@@ -1,4 +1,4 @@
-use super::client_conn::ClientConnection;
+use super::client_adapter::ClientAdapter;
 use super::client_state::ClientStateMessage;
 use super::game_info::{GameId, GameInfo, GameType, Player};
 use super::lobby_mgr::{LobbyManager, LobbyManagerMsg};
@@ -15,8 +15,8 @@ use std::time::{Duration, Instant};
 const LOBBY_TIMEOUT_S: u64 = 30 * 60; // 30 Minutes
 
 pub enum LobbyState {
-    OnePlayer(Addr<ClientConnection>, Option<UserId>),
-    TwoPlayers(GameType, Addr<ClientConnection>, Addr<ClientConnection>),
+    OnePlayer(Addr<ClientAdapter>, Option<UserId>),
+    TwoPlayers(GameType, Addr<ClientAdapter>, Addr<ClientAdapter>),
 }
 
 // #[derive(Debug, Clone, Copy)]
@@ -25,7 +25,7 @@ pub struct ClientLobbyMessageNamed {
     pub msg: ClientLobbyMessage,
 }
 
-pub struct PlayerJoined(pub Addr<ClientConnection>, pub Option<UserId>);
+pub struct PlayerJoined(pub Addr<ClientAdapter>, pub Option<UserId>);
 impl Message for PlayerJoined {
     type Result = Result<(), ()>;
 }
@@ -164,8 +164,8 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                                         if let GameType::Registered(_, host_id, joined_id) =
                                             game_type
                                         {
-                                            let (winner, loser) = winner
-                                                .select_both(*host_id, *joined_id);
+                                            let (winner, loser) =
+                                                winner.select_both(*host_id, *joined_id);
                                             println!("{} won against {}", winner, loser);
                                             let game_info = PlayedGameInfo::new(winner, loser);
                                             self.lobby_mgr
@@ -196,8 +196,8 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                     msg_recipient.do_send(ServerMessage::ChatMessage(false, msg));
                     Ok(())
                 }
-                _ => {Err(())}
-            }
+                _ => Err(()),
+            },
         }
     }
 }
@@ -340,7 +340,7 @@ impl Lobby {
         game_id: GameId,
         lobby_mgr: Addr<LobbyManager>,
         user_mgr: Addr<user_mgr::UserManager>,
-        host_addr: Addr<ClientConnection>,
+        host_addr: Addr<ClientAdapter>,
         maybe_host_id: Option<UserId>,
     ) -> Lobby {
         Lobby {

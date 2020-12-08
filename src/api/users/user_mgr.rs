@@ -1,5 +1,5 @@
 use super::{super::ApiError, user::*};
-use crate::game::client_conn::ClientConnection;
+use crate::game::client_adapter::ClientAdapter;
 use crate::game::lobby_mgr::{self, LobbyManager};
 use crate::game::msg::*;
 // use crate::game::msg::SrvMsgError;
@@ -150,7 +150,7 @@ pub mod msg {
     pub struct StartPlaying {
         pub username: String,
         pub password: String,
-        pub addr: Addr<ClientConnection>,
+        pub addr: Addr<ClientAdapter>,
     }
     // (pub String, pub String);
     impl Message for StartPlaying {
@@ -329,7 +329,7 @@ pub mod msg {
     }
 
     pub struct BattleReq {
-        pub sender: (Addr<ClientConnection>, UserId),
+        pub sender: (Addr<ClientAdapter>, UserId),
         pub receiver: UserId,
     }
     impl Message for BattleReq {

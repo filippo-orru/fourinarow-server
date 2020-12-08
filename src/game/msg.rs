@@ -4,6 +4,72 @@ use crate::api::users::user::UserId;
 use actix::prelude::*;
 
 #[derive(Debug, Clone)]
+pub enum ReliablePacket<T> {
+    //Syn(usize),    // Hello with partner's starting id
+    Ack(usize),    // Acknowledge the partner's message with that id
+    Msg(usize, T), // Actual message with id and content
+}
+
+impl Message for ReliablePacket<ServerMessage> {
+    type Result = ();
+}
+
+#[derive(Debug, Clone)]
+pub enum ReliabilityError {
+    InvalidContent, // Message content could not be parsed
+    InvalidFormat,  // ReliableMessage could not be parsed
+    UnknownMessage, // Correct format but unknown keyword (ack, syn, msg)
+    Unknown,        // all other errors
+}
+
+impl ReliablePacket<PlayerMessage> {
+    pub fn parse(orig: &str) -> Result<ReliablePacket<PlayerMessage>, ReliabilityError> {
+        let uppercase = orig.to_uppercase();
+        let parts: Vec<_> = uppercase.split("::").collect();
+        return if parts.len() == 2 {
+            if parts[0] == "ACK" {
+                if let Ok(id) = parts[1].parse::<usize>() {
+                    Ok(ReliablePacket::Ack(id))
+                } else {
+                    Err(ReliabilityError::InvalidFormat)
+                }
+            // } else if parts[0] == "SYN" {
+            //     if let Ok(id) = parts[1].parse::<usize>() {
+            //         Ok(ReliableMessage::Syn(id))
+            //     } else {
+            //         Err(ReliabilityError::InvalidFormat)
+            //     }
+            } else {
+                Err(ReliabilityError::UnknownMessage)
+            }
+        } else if parts.len() == 3 {
+            if let Ok(id) = parts[1].parse::<usize>() {
+                if let Some(player_msg) = PlayerMessage::parse(parts[2]) {
+                    Ok(ReliablePacket::Msg(id, player_msg))
+                } else {
+                    Err(ReliabilityError::InvalidContent)
+                }
+            } else {
+                Err(ReliabilityError::InvalidFormat)
+            }
+        } else {
+            Err(ReliabilityError::Unknown)
+        };
+    }
+}
+
+impl ReliablePacket<ServerMessage> {
+    pub fn serialize(self) -> String {
+        use ReliablePacket::*;
+        match self {
+            // Syn(id) => format!("SYN::{}", id),
+            Ack(id) => format!("ACK::{}", id),
+            Msg(id, msg) => format!("MSG::{}::{}", id, msg.serialize()),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum ServerMessage {
     PlaceChip(usize),
     OpponentLeaving,
@@ -19,13 +85,13 @@ pub enum ServerMessage {
     Error(Option<SrvMsgError>),
     BattleReq(UserId, GameId),
     CurrentServerState(usize, bool), // connected players, someone wants to play
-    ChatMessage(bool, String), // global, message
+    ChatMessage(bool, String),       // global, message
 }
 
 impl ServerMessage {
-    pub fn serialize(self) -> String {
+    pub fn serialize(&self) -> String {
         use ServerMessage::*;
-        match self {
+        match self.clone() {
             PlaceChip(row) => format!("PC:{}", row),
             OpponentLeaving => "OPP_LEAVING".to_owned(),
             OpponentJoining => "OPP_JOINED".to_owned(),
@@ -57,10 +123,10 @@ impl ServerMessage {
                 "CURRENT_SERVER_STATE:{}:{}",
                 connected_players, player_waiting
             ),
-            ChatMessage(is_global,message) => {
+            ChatMessage(is_global, message) => {
                 let encoded_message = base64::encode_config(message, base64::STANDARD);
                 format!("CHAT_MSG:{}:{}", is_global, encoded_message)
-            },
+            }
         }
     }
 }
@@ -177,7 +243,9 @@ impl PlayerMessage {
         } else if s.starts_with("CHAT_MSG") {
             let split: Vec<&str> = orig.split(':').collect();
             if split.len() == 2 {
-                if let Ok(Ok(decoded_msg)) = base64::decode_config(split[1], base64::STANDARD).map(String::from_utf8) {
+                if let Ok(Ok(decoded_msg)) =
+                    base64::decode_config(split[1], base64::STANDARD).map(String::from_utf8)
+                {
                     return Some(ChatMessage(decoded_msg));
                 }
             }
@@ -186,7 +254,7 @@ impl PlayerMessage {
     }
 }
 
-impl<'a> Message for PlayerMessage {
+impl Message for PlayerMessage {
     type Result = Result<(), ()>;
 }
 // impl Message for ServerMessageNamed {

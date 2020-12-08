@@ -1,4 +1,5 @@
-pub mod client_conn;
+pub mod client_adapter;
+pub mod client_connection;
 pub mod connection_mgr;
 pub mod lobby_mgr;
 pub mod msg;
@@ -8,7 +9,7 @@ mod game_info;
 mod lobby;
 
 use crate::api::users::user_mgr::UserManager;
-pub use client_conn::ClientConnection;
+pub use client_connection::ClientConnection;
 use lobby_mgr::LobbyManager;
 
 use actix::Addr;

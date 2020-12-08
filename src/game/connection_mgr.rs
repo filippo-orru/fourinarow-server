@@ -1,12 +1,21 @@
-use crate::game::msg::ServerMessage;
 use actix::*;
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use std::{collections::HashMap, time::Instant};
 
 use super::{
+    client_adapter::{ClientAdapter, ClientAdapterMsg},
+    client_connection::ClientConnnectionMsg,
     client_state::{ClientState, ClientStateMessage},
     lobby_mgr::LobbyManager,
+    ClientConnection,
 };
+use crate::{api::users::user_mgr::UserManager, game::msg::ServerMessage};
+
+pub type Identifier = String;
 
 const SEND_SERVER_INFO_INTERVAL_SECONDS: u64 = 2;
+
+const CONNECTION_KEEPALIVE_SECONDS: u64 = 30;
 
 enum BacklinkState {
     Linked(Addr<LobbyManager>),
@@ -15,7 +24,7 @@ enum BacklinkState {
 
 pub struct ConnectionManager {
     lobby_mgr_state: BacklinkState,
-    connections: Vec<Connection>,
+    connections: HashMap<Identifier, Connection>,
     player_in_queue: bool,
     send_server_info_batched: bool,
 }
@@ -24,14 +33,51 @@ impl ConnectionManager {
     pub fn new() -> Self {
         ConnectionManager {
             lobby_mgr_state: BacklinkState::Unlinked,
-            connections: Vec::new(),
+            connections: HashMap::new(),
             player_in_queue: false,
             send_server_info_batched: false,
         }
     }
 
+    fn send_server_info_interval(&self, ctx: &mut Context<Self>) {
+        // Send currentserverinfo to everyone every x seconds (only if change occurred)
+        ctx.run_interval(
+            std::time::Duration::from_secs(SEND_SERVER_INFO_INTERVAL_SECONDS),
+            |act, ctx| {
+                if act.send_server_info_batched {
+                    act.send_server_info_to_all(ctx);
+                    act.send_server_info_batched = false;
+                }
+            },
+        );
+    }
+
+    fn check_connectionstate_interval(&self, ctx: &mut Context<Self>) {
+        ctx.run_interval(std::time::Duration::from_secs(1), |act, _| {
+            let connections_to_remove = act
+                .connections
+                .iter()
+                .filter_map(|(id, connection)| {
+                    if let ConnectionState::Disconnected(disconnect_instant) = connection.state {
+                        if disconnect_instant.elapsed().as_secs() >= CONNECTION_KEEPALIVE_SECONDS {
+                            return Some((id.clone(), connection.clone()));
+                        }
+                    }
+                    None
+                })
+                .collect::<Vec<(String, Connection)>>();
+
+            for (id, connection) in connections_to_remove {
+                connection.adapter_addr.do_send(ClientAdapterMsg::Close);
+                act.connections.remove(&id);
+                println!("Connection {} timeouted", id);
+                act.send_server_info_batched = true;
+            }
+        });
+    }
+
     fn send_server_info_to_all(&self, ctx: &mut Context<Self>) {
-        for connection in self.connections.iter() {
+        for (_, connection) in self.connections.iter() {
             self.send_server_info(connection.state_addr.clone(), ctx);
         }
     }
@@ -45,19 +91,37 @@ impl ConnectionManager {
             false,
         ));
     }
+
+    fn generate_identifier() -> Identifier {
+        thread_rng().sample_iter(&Alphanumeric).take(32).collect()
+    }
+}
+
+#[derive(Clone)]
+enum ConnectionState {
+    Connected,
+    Disconnected(Instant),
 }
 
 #[derive(Clone)]
 struct Connection {
+    adapter_addr: Addr<ClientAdapter>,
     state_addr: Addr<ClientState>,
+    state: ConnectionState,
 }
 
 pub enum ConnectionManagerMsg {
-    Hello(Addr<ClientState>),               // sent when client first connects
-    Bye(Addr<ClientState>),                 // sent when client disconnects
+    // Close(Identifier),
+    Disconnect(Identifier),
     Update(bool), // (player_in_queue): sent by lobbyManager when clients should be notified
-    ChatMessage(Addr<ClientState>, String), // global chat message (sender_addr, msg)
+    ChatMessage(Identifier, String), // global chat message (sender_addr, msg)
     Backlink(Addr<LobbyManager>), // sent by lobbyManager when it starts to form bidirectional link
+    RequestAdapterNew(
+        Addr<ClientConnection>,
+        Addr<LobbyManager>,
+        Addr<UserManager>,
+    ), // sent when client first connects
+    RequestAdapterExisting(Addr<ClientConnection>, String), // sent when client reconnects
 }
 
 impl Message for ConnectionManagerMsg {
@@ -67,37 +131,31 @@ impl Message for ConnectionManagerMsg {
 impl Handler<ConnectionManagerMsg> for ConnectionManager {
     type Result = Result<(), ()>;
 
-    fn handle(&mut self, msg: ConnectionManagerMsg, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ConnectionManagerMsg, ctx: &mut Self::Context) -> Self::Result {
         use ConnectionManagerMsg::*;
         match msg {
-            Hello(client_state_addr) => {
-                // Add this new connection to list
-                self.connections.push(Connection {
-                    state_addr: client_state_addr.clone(),
-                });
-
-                // <- Commented out for performance reasons ->
-                // self.send_server_info_to_all(ctx);
-                self.send_server_info_batched = true;
-            }
-            Bye(client_state_addr) => {
+            // Close(id) => {
+            //     if let Some(connection) = self.connections.remove(id) {
+            //         connection.adapter_addr.do_send(ClientAdapterMsg::Close)
+            //     }
+            // }
+            Disconnect(id) => {
                 // Remove this connection from list if exists
-                if let Some(index) = self
-                    .connections
-                    .iter()
-                    .position(|conn| conn.state_addr == client_state_addr)
-                {
-                    self.connections.remove(index);
-                    self.send_server_info_batched = true;
+
+                if let Some(connection) = self.connections.get_mut(&id) {
+                    connection
+                        .adapter_addr
+                        .do_send(ClientAdapterMsg::Disconnect);
+                    connection.state = ConnectionState::Disconnected(Instant::now());
                 }
             }
             Update(player_in_lobby) => {
                 self.player_in_queue = player_in_lobby;
                 self.send_server_info_batched = true;
             }
-            ChatMessage(client_state_addr, msg) => {
-                for connection in self.connections.iter() {
-                    if connection.state_addr != client_state_addr {
+            ChatMessage(sender_id, msg) => {
+                for (id, connection) in self.connections.iter() {
+                    if id != &sender_id {
                         connection
                             .state_addr
                             .do_send(ServerMessage::ChatMessage(true, msg.clone()));
@@ -106,6 +164,42 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
             }
             Backlink(lobby_mgr_addr) => {
                 self.lobby_mgr_state = BacklinkState::Linked(lobby_mgr_addr)
+            }
+            RequestAdapterNew(client_connection_addr, lobby_mgr, user_mgr) => {
+                let id = Self::generate_identifier();
+                let client_state_addr =
+                    ClientState::new(id.clone(), lobby_mgr, user_mgr, ctx.address()).start();
+                let client_adapter_addr =
+                    ClientAdapter::new(client_connection_addr.clone(), client_state_addr.clone())
+                        .start();
+                // Add this new connection to list
+                self.connections.insert(
+                    id.clone(),
+                    Connection {
+                        state_addr: client_state_addr.clone(),
+                        adapter_addr: client_adapter_addr.clone(),
+                        state: ConnectionState::Connected,
+                    },
+                );
+                client_connection_addr.do_send(ClientConnnectionMsg::Link(id, client_adapter_addr));
+
+                // <- Commented out for performance reasons ->
+                // self.send_server_info_to_all(ctx);
+                self.send_server_info_batched = true;
+            }
+            RequestAdapterExisting(client_connection_addr, id) => {
+                if let Some(connection) = self.connections.get_mut(&id) {
+                    connection.state = ConnectionState::Connected;
+                    connection
+                        .adapter_addr
+                        .do_send(ClientAdapterMsg::Connect(client_connection_addr.clone()));
+                    client_connection_addr.do_send(ClientConnnectionMsg::Link(
+                        id,
+                        connection.adapter_addr.clone(),
+                    ));
+                } else {
+                    client_connection_addr.do_send(ClientConnnectionMsg::NotFound);
+                }
             }
         }
         Ok(())
@@ -135,15 +229,7 @@ impl Actor for ConnectionManager {
         //     println!("Top output: {:?}", output);
         // });
 
-        // Send currentserverinfo to everyone every x seconds (only if change occurred)
-        ctx.run_interval(
-            std::time::Duration::from_secs(SEND_SERVER_INFO_INTERVAL_SECONDS),
-            |act, ctx| {
-                if act.send_server_info_batched {
-                    act.send_server_info_to_all(ctx);
-                    act.send_server_info_batched = false;
-                }
-            },
-        );
+        self.send_server_info_interval(ctx);
+        self.check_connectionstate_interval(ctx);
     }
 }
