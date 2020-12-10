@@ -55,6 +55,17 @@ impl ClientConnection {
             ctx.ping(b"");
         });
     }
+
+    fn text<T: Into<String>>(&self, ctx: &mut ws::WebsocketContext<Self>, msg: T) {
+        let id = if let ClientAdapterConnectionState::Connected(id, _) = &self.connection_state {
+            &id[0..3]
+        } else {
+            ""
+        };
+        let msg_str = msg.into();
+        println!("{}<< {:?}", id, msg_str);
+        ctx.text(msg_str);
+    }
 }
 
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ClientConnection {
@@ -85,10 +96,17 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ClientConnection 
             }
             ws::Message::Nop => (),
             ws::Message::Text(str_msg) => {
+                let id = if let ClientAdapterConnectionState::Connected(id, _) =
+                    &self.connection_state
+                {
+                    &id[0..3]
+                } else {
+                    ""
+                };
                 if str_msg.to_lowercase().contains("login") {
                     println!(">> LOGIN:***:***");
                 } else {
-                    println!(">> {:?}", str_msg);
+                    println!("{}>> {:?}", id, str_msg);
                 }
 
                 match &self.connection_state {
@@ -122,7 +140,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ClientConnection 
                         adapter_addr.do_send(ClientMsgString(str_msg));
                     }
                     ClientAdapterConnectionState::Pending => {
-                        ctx.text("WAIT");
+                        self.text(ctx, "WAIT");
                     }
                 }
             }
@@ -134,7 +152,7 @@ impl Handler<ClientMsgString> for ClientConnection {
     type Result = ();
 
     fn handle(&mut self, msg: ClientMsgString, ctx: &mut Self::Context) -> Self::Result {
-        ctx.text(msg);
+        self.text(ctx, msg);
     }
 }
 
@@ -154,11 +172,11 @@ impl Handler<ClientConnnectionMsg> for ClientConnection {
         match msg {
             ClientConnnectionMsg::Link(id, addr) => {
                 self.connection_state = ClientAdapterConnectionState::Connected(id.clone(), addr);
-                ctx.text(&format!("READY::{}", id));
+                self.text(ctx, &format!("READY::{}", id));
             }
             ClientConnnectionMsg::NotFound => {
                 self.connection_state = ClientAdapterConnectionState::NotConnected;
-                ctx.text("NOT_FOUND");
+                self.text(ctx, "NOT_FOUND");
             }
         }
     }

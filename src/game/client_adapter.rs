@@ -71,7 +71,7 @@ impl ClientAdapter {
         );
     }
 
-    fn received_reliable_msg(
+    fn received_reliable_pkt(
         &mut self,
         msg: ReliablePacket<PlayerMessage>,
         ctx: &mut Context<Self>,
@@ -121,10 +121,6 @@ impl ClientAdapter {
     /// Processes all player messages in the queue that can be ordered
     /// If player_msg_index is 2 and the queue contains [4, 5, 3, 7] all except 7 will be processed
     fn process_queue(&mut self, ctx: &mut Context<Self>) {
-        println!(
-            "processing queue. before: {:?}",
-            self.reliability_layer.player_msg_q
-        );
         loop {
             let mut added = false;
             let messages: Vec<_> = self.reliability_layer.player_msg_q.drain(..).collect();
@@ -144,7 +140,6 @@ impl ClientAdapter {
                 break;
             }
         }
-        println!("after: {:?}", self.reliability_layer.player_msg_q);
     }
 
     fn ack_message(&mut self, id: usize, ctx: &mut Context<Self>) {
@@ -192,7 +187,7 @@ impl Handler<ClientMsgString> for ClientAdapter {
 
     fn handle(&mut self, msg: ClientMsgString, ctx: &mut Self::Context) -> Self::Result {
         match ReliablePacket::parse(&msg.0) {
-            Ok(msg) => self.received_reliable_msg(msg, ctx),
+            Ok(msg) => self.received_reliable_pkt(msg, ctx),
             Err(reliability_err) => {
                 // TODO!
                 println!("   ## -> Invalid message (error: {:?})", reliability_err);
@@ -226,11 +221,9 @@ impl Handler<ReliablePacket<ServerMessage>> for ClientAdapter {
         }
 
         let msg_str = msg.serialize();
-        // TODO: move this v
         if let ClientConnectionConnectionState::Connected(client_connection) =
             &self.client_connection
         {
-            println!("<< {:?}", msg_str);
             client_connection.do_send(ClientMsgString(msg_str));
         }
     }

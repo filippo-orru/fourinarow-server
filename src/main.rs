@@ -20,10 +20,10 @@ async fn main() {
         std::env::set_var("RUST_LOG", "actix_web=info");
     }
     let args: Vec<String> = std::env::args().collect();
-    let bind_addr = if let Some(port) = args.get(1) {
-        format!("127.0.0.1:{}", port)
+    let bind_addr = if let Some(addr) = args.get(1) {
+        addr
     } else {
-        DEFAULT_BIND_ADDR.to_string()
+        DEFAULT_BIND_ADDR
     };
 
     env_logger::init();
