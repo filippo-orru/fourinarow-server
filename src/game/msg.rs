@@ -1,51 +1,35 @@
-use super::game_info::{GameId, GAME_ID_LEN};
 use super::lobby_mgr::LobbyKind;
+use super::{
+    connection_mgr::SessionToken,
+    game_info::{GameId, GAME_ID_LEN},
+};
 use crate::api::users::user::UserId;
 use actix::prelude::*;
 
 #[derive(Debug, Clone)]
-pub enum ReliablePacket<T> {
-    //Syn(usize),    // Hello with partner's starting id
-    Ack(usize),    // Acknowledge the partner's message with that id
-    Msg(usize, T), // Actual message with id and content
+pub enum ReliablePacketIn {
+    Ack(usize),                // Acknowledge the server's message with that id
+    Msg(usize, PlayerMessage), // Actual message with id and content
 }
 
-impl Message for ReliablePacket<ServerMessage> {
-    type Result = ();
-}
-
-#[derive(Debug, Clone)]
-pub enum ReliabilityError {
-    InvalidContent, // Message content could not be parsed
-    InvalidFormat,  // ReliableMessage could not be parsed
-    UnknownMessage, // Correct format but unknown keyword (ack, syn, msg)
-    Unknown,        // all other errors
-}
-
-impl ReliablePacket<PlayerMessage> {
-    pub fn parse(orig: &str) -> Result<ReliablePacket<PlayerMessage>, ReliabilityError> {
+impl ReliablePacketIn {
+    pub fn parse(orig: &str) -> Result<ReliablePacketIn, ReliabilityError> {
         let uppercase = orig.to_uppercase();
         let parts: Vec<_> = uppercase.split("::").collect();
         return if parts.len() == 2 {
             if parts[0] == "ACK" {
                 if let Ok(id) = parts[1].parse::<usize>() {
-                    Ok(ReliablePacket::Ack(id))
+                    Ok(ReliablePacketIn::Ack(id))
                 } else {
                     Err(ReliabilityError::InvalidFormat)
                 }
-            // } else if parts[0] == "SYN" {
-            //     if let Ok(id) = parts[1].parse::<usize>() {
-            //         Ok(ReliableMessage::Syn(id))
-            //     } else {
-            //         Err(ReliabilityError::InvalidFormat)
-            //     }
             } else {
                 Err(ReliabilityError::UnknownMessage)
             }
         } else if parts.len() == 3 {
             if let Ok(id) = parts[1].parse::<usize>() {
                 if let Some(player_msg) = PlayerMessage::parse(parts[2]) {
-                    Ok(ReliablePacket::Msg(id, player_msg))
+                    Ok(ReliablePacketIn::Msg(id, player_msg))
                 } else {
                     Err(ReliabilityError::InvalidContent)
                 }
@@ -58,13 +42,80 @@ impl ReliablePacket<PlayerMessage> {
     }
 }
 
-impl ReliablePacket<ServerMessage> {
+#[derive(Debug, Clone)]
+pub enum ReliablePacketOut {
+    Ack(usize),                // Acknowledge the client's message with that id
+    Msg(usize, ServerMessage), // Actual message with id and content
+}
+
+impl Message for ReliablePacketOut {
+    type Result = ();
+}
+#[derive(Debug, Clone)]
+pub enum ReliabilityError {
+    InvalidContent, // Message content could not be parsed
+    InvalidFormat,  // ReliableMessage could not be parsed
+    UnknownMessage, // Correct format but unknown keyword (ack, syn, msg)
+    Unknown,        // all other errors
+}
+
+impl ReliablePacketOut {
     pub fn serialize(self) -> String {
-        use ReliablePacket::*;
+        use ReliablePacketOut::*;
         match self {
-            // Syn(id) => format!("SYN::{}", id),
             Ack(id) => format!("ACK::{}", id),
             Msg(id, msg) => format!("MSG::{}::{}", id, msg.serialize()),
+        }
+    }
+}
+
+pub struct HelloIn {
+    pub protocol_version: usize,
+    pub maybe_session_token: Option<SessionToken>,
+}
+
+impl HelloIn {
+    pub fn parse(orig: &str) -> Option<Self> {
+        //let uppercase = orig.to_uppercase();
+        let parts: Vec<_> = orig.split("::").collect();
+        if parts.len() == 3 && parts[0] == "HELLO" {
+            if let Ok(protocol_version) = parts[1].parse() {
+                let request_parts: Vec<_> = parts[2].split(":").collect();
+                let maybe_session_token = if request_parts.len() == 1 && request_parts[0] == "NEW" {
+                    None
+                } else if request_parts.len() == 2 && request_parts[0] == "REQ" {
+                    let session_token = request_parts[1].to_string();
+                    if session_token.len() != 32 {
+                        None
+                    } else {
+                        Some(session_token)
+                    }
+                } else {
+                    None
+                };
+                return Some(HelloIn {
+                    protocol_version,
+                    maybe_session_token,
+                });
+            }
+        }
+        None
+    }
+}
+
+pub enum HelloOut {
+    Ok(SessionToken, bool), // Hello sessionToken and session_token.is_new
+    OutDated,               // Sent when the client's version is too old
+}
+impl HelloOut {
+    pub fn serialize(self) -> String {
+        use HelloOut::*;
+        match self {
+            Ok(session_token, is_new) => {
+                let is_new_str = if is_new { "NEW" } else { "FOUND" };
+                format!("HELLO::{}::{}", is_new_str, session_token)
+            }
+            OutDated => "HELLO::OUTDATED".to_string(),
         }
     }
 }

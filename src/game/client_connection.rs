@@ -1,9 +1,12 @@
 use super::{
-    client_adapter::{ClientAdapter, ClientMsgString},
-    connection_mgr::{ConnectionManager, Identifier},
+    client_adapter::{ClientAdapter, ClientMsgString, MIN_VERSION},
+    client_state::ClientState,
+    connection_mgr::{ConnectionManager, NewAdapterAdresses, SessionToken},
+    msg::{HelloOut, PlayerMessage},
 };
 use super::{connection_mgr::ConnectionManagerMsg, lobby_mgr::LobbyManager};
 use crate::api::users::user_mgr::UserManager;
+use crate::game::msg::HelloIn;
 
 use actix::*;
 use actix_web_actors::ws;
@@ -22,7 +25,8 @@ pub struct ClientConnection {
 }
 
 enum ClientAdapterConnectionState {
-    Connected(Identifier, Addr<ClientAdapter>),
+    Connected(SessionToken, Addr<ClientAdapter>),
+    ConnectedLegacy(Addr<ClientState>), // Old clients bypass the new reliability layer & adapter and sent straight to state
     Pending,
     NotConnected,
 }
@@ -111,29 +115,44 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for ClientConnection 
 
                 match &self.connection_state {
                     ClientAdapterConnectionState::NotConnected => {
-                        if str_msg == "NEW" {
-                            self.connection_mgr
-                                .do_send(ConnectionManagerMsg::RequestAdapterNew(
-                                    ctx.address(),
-                                    self.lobby_mgr.clone(),
-                                    self.user_mgr.clone(),
-                                ))
-                        } else if str_msg.starts_with("REQ::") {
-                            let identifier = if let Some(id) = str_msg.split("::").nth(1) {
-                                id
-                            } else {
-                                return;
-                            };
-                            if identifier.len() != 32 {
+                        if let Some(hello) = HelloIn::parse(&str_msg) {
+                            if hello.protocol_version < MIN_VERSION {
+                                self.text(ctx, HelloOut::OutDated.serialize());
+                                ctx.stop();
                                 return;
                             }
-                            self.connection_mgr.do_send(
-                                ConnectionManagerMsg::RequestAdapterExisting(
-                                    ctx.address(),
-                                    identifier.to_string(),
-                                ),
-                            );
+
+                            if let Some(session_token) = hello.maybe_session_token {
+                                self.connection_mgr.do_send(
+                                    ConnectionManagerMsg::RequestAdapterExisting(
+                                        NewAdapterAdresses {
+                                            client_conn: ctx.address(),
+                                            lobby_mgr: self.lobby_mgr.clone(),
+                                            user_mgr: self.user_mgr.clone(),
+                                        },
+                                        session_token.to_string(),
+                                    ),
+                                );
+                            } else {
+                                self.connection_mgr.do_send(
+                                    ConnectionManagerMsg::RequestAdapterNew(NewAdapterAdresses {
+                                        client_conn: ctx.address(),
+                                        lobby_mgr: self.lobby_mgr.clone(),
+                                        user_mgr: self.user_mgr.clone(),
+                                    }),
+                                )
+                            }
                             self.connection_state = ClientAdapterConnectionState::Pending;
+                        } else {
+                            self.text(ctx, "NOT_CONNECTED");
+                        }
+                    }
+                    ClientAdapterConnectionState::ConnectedLegacy(state_addr) => {
+                        if let Some(player_msg) = PlayerMessage::parse(&str_msg) {
+                            state_addr.do_send(player_msg);
+                        } else {
+                            self.text(ctx, "ERR");
+                            ctx.stop();
                         }
                     }
                     ClientAdapterConnectionState::Connected(_, adapter_addr) => {
@@ -156,9 +175,10 @@ impl Handler<ClientMsgString> for ClientConnection {
     }
 }
 
-pub enum ClientConnnectionMsg {
-    Link(Identifier, Addr<ClientAdapter>),
-    NotFound,
+pub struct ClientConnnectionMsg {
+    pub session_token: SessionToken,
+    pub client_adapter: Addr<ClientAdapter>,
+    pub is_new: bool,
 }
 
 impl Message for ClientConnnectionMsg {
@@ -169,16 +189,9 @@ impl Handler<ClientConnnectionMsg> for ClientConnection {
     type Result = ();
 
     fn handle(&mut self, msg: ClientConnnectionMsg, ctx: &mut Self::Context) -> Self::Result {
-        match msg {
-            ClientConnnectionMsg::Link(id, addr) => {
-                self.connection_state = ClientAdapterConnectionState::Connected(id.clone(), addr);
-                self.text(ctx, &format!("READY::{}", id));
-            }
-            ClientConnnectionMsg::NotFound => {
-                self.connection_state = ClientAdapterConnectionState::NotConnected;
-                self.text(ctx, "NOT_FOUND");
-            }
-        }
+        self.connection_state =
+            ClientAdapterConnectionState::Connected(msg.session_token.clone(), msg.client_adapter);
+        self.text(ctx, HelloOut::Ok(msg.session_token, msg.is_new).serialize());
     }
 }
 

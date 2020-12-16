@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 const QUEUE_CHECK_INTERVAL_MS: u64 = 500;
 const QUEUE_RESEND_TIMEOUT_MS: u128 = 5000; // TODO change back to 1000
 
+pub const MIN_VERSION: usize = 2;
+
 #[derive(Default)]
 struct ReliabilityLayer {
     player_msg_index: usize, // Last successfully received message
@@ -25,8 +27,8 @@ struct QueuedMessage<T> {
 }
 
 impl QueuedMessage<ServerMessage> {
-    fn to_packet(self) -> ReliablePacket<ServerMessage> {
-        ReliablePacket::Msg(self.id, self.msg)
+    fn to_packet(self) -> ReliablePacketOut {
+        ReliablePacketOut::Msg(self.id, self.msg)
     }
 }
 
@@ -71,16 +73,9 @@ impl ClientAdapter {
         );
     }
 
-    fn received_reliable_pkt(
-        &mut self,
-        msg: ReliablePacket<PlayerMessage>,
-        ctx: &mut Context<Self>,
-    ) {
+    fn received_reliable_pkt(&mut self, msg: ReliablePacketIn, ctx: &mut Context<Self>) {
         match msg {
-            // ReliableMessage::Syn(starting_id) => {
-            //     self.reliability_layer.client_last_msg_id = Some(starting_id);
-            // }
-            ReliablePacket::Ack(id) => {
+            ReliablePacketIn::Ack(id) => {
                 let maybe_rmsg = self
                     .reliability_layer
                     .server_msg_q
@@ -95,7 +90,7 @@ impl ClientAdapter {
                 //     ctx.stop();
                 // }
             }
-            ReliablePacket::Msg(id, player_msg) => {
+            ReliablePacketIn::Msg(id, player_msg) => {
                 let expected_id = self.reliability_layer.player_msg_index + 1;
                 if id == expected_id {
                     // We got the expected message
@@ -143,7 +138,7 @@ impl ClientAdapter {
     }
 
     fn ack_message(&mut self, id: usize, ctx: &mut Context<Self>) {
-        ctx.notify(ReliablePacket::Ack(id));
+        ctx.notify(ReliablePacketOut::Ack(id));
     }
 
     fn queue_message(&mut self, id: usize, msg: PlayerMessage) {
@@ -186,7 +181,7 @@ impl Handler<ClientMsgString> for ClientAdapter {
     type Result = ();
 
     fn handle(&mut self, msg: ClientMsgString, ctx: &mut Self::Context) -> Self::Result {
-        match ReliablePacket::parse(&msg.0) {
+        match ReliablePacketIn::parse(&msg.0) {
             Ok(msg) => self.received_reliable_pkt(msg, ctx),
             Err(reliability_err) => {
                 // TODO!
@@ -201,7 +196,7 @@ impl Handler<ServerMessage> for ClientAdapter {
     type Result = Result<(), ()>;
     fn handle(&mut self, msg: ServerMessage, ctx: &mut Self::Context) -> Self::Result {
         self.reliability_layer.server_msg_index += 1;
-        ctx.notify(ReliablePacket::Msg(
+        ctx.notify(ReliablePacketOut::Msg(
             self.reliability_layer.server_msg_index,
             msg,
         ));
@@ -209,10 +204,10 @@ impl Handler<ServerMessage> for ClientAdapter {
     }
 }
 
-impl Handler<ReliablePacket<ServerMessage>> for ClientAdapter {
+impl Handler<ReliablePacketOut> for ClientAdapter {
     type Result = ();
-    fn handle(&mut self, msg: ReliablePacket<ServerMessage>, _ctx: &mut Self::Context) {
-        if let ReliablePacket::Msg(id, server_msg) = msg.clone() {
+    fn handle(&mut self, msg: ReliablePacketOut, _ctx: &mut Self::Context) {
+        if let ReliablePacketOut::Msg(id, server_msg) = msg.clone() {
             self.reliability_layer.server_msg_q.push(QueuedMessage {
                 id,
                 msg: server_msg.clone(),

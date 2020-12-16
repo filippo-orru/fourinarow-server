@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{api::users::user_mgr::UserManager, game::msg::ServerMessage};
 
-pub type Identifier = String;
+pub type SessionToken = String;
 
 const SEND_SERVER_INFO_INTERVAL_SECONDS: u64 = 2;
 
@@ -24,7 +24,7 @@ enum BacklinkState {
 
 pub struct ConnectionManager {
     lobby_mgr_state: BacklinkState,
-    connections: HashMap<Identifier, Connection>,
+    connections: HashMap<SessionToken, Connection>,
     player_in_queue: bool,
     send_server_info_batched: bool,
 }
@@ -92,7 +92,7 @@ impl ConnectionManager {
         ));
     }
 
-    fn generate_identifier() -> Identifier {
+    fn generate_session_token() -> SessionToken {
         thread_rng().sample_iter(&Alphanumeric).take(32).collect()
     }
 }
@@ -111,17 +111,18 @@ struct Connection {
 }
 
 pub enum ConnectionManagerMsg {
-    // Close(Identifier),
-    Disconnect(Identifier),
+    Disconnect(SessionToken),
     Update(bool), // (player_in_queue): sent by lobbyManager when clients should be notified
-    ChatMessage(Identifier, String), // global chat message (sender_addr, msg)
+    ChatMessage(SessionToken, String), // global chat message (sender_addr, msg)
     Backlink(Addr<LobbyManager>), // sent by lobbyManager when it starts to form bidirectional link
-    RequestAdapterNew(
-        Addr<ClientConnection>,
-        Addr<LobbyManager>,
-        Addr<UserManager>,
-    ), // sent when client first connects
-    RequestAdapterExisting(Addr<ClientConnection>, String), // sent when client reconnects
+    RequestAdapterNew(NewAdapterAdresses), // sent when client first connects
+    RequestAdapterExisting(NewAdapterAdresses, String), // sent when client reconnects
+}
+
+pub struct NewAdapterAdresses {
+    pub client_conn: Addr<ClientConnection>,
+    pub lobby_mgr: Addr<LobbyManager>,
+    pub user_mgr: Addr<UserManager>,
 }
 
 impl Message for ConnectionManagerMsg {
@@ -165,40 +166,56 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
             Backlink(lobby_mgr_addr) => {
                 self.lobby_mgr_state = BacklinkState::Linked(lobby_mgr_addr)
             }
-            RequestAdapterNew(client_connection_addr, lobby_mgr, user_mgr) => {
-                let id = Self::generate_identifier();
-                let client_state_addr =
-                    ClientState::new(id.clone(), lobby_mgr, user_mgr, ctx.address()).start();
-                let client_adapter_addr =
-                    ClientAdapter::new(client_connection_addr.clone(), client_state_addr.clone())
-                        .start();
+            RequestAdapterNew(new_adapter_addresses) => {
+                let session_token = Self::generate_session_token();
+                let client_state_addr = ClientState::new(
+                    session_token.clone(),
+                    new_adapter_addresses.lobby_mgr,
+                    new_adapter_addresses.user_mgr,
+                    ctx.address(),
+                )
+                .start();
+                let client_adapter = ClientAdapter::new(
+                    new_adapter_addresses.client_conn.clone(),
+                    client_state_addr.clone(),
+                )
+                .start();
                 // Add this new connection to list
                 self.connections.insert(
-                    id.clone(),
+                    session_token.clone(),
                     Connection {
                         state_addr: client_state_addr.clone(),
-                        adapter_addr: client_adapter_addr.clone(),
+                        adapter_addr: client_adapter.clone(),
                         state: ConnectionState::Connected,
                     },
                 );
-                client_connection_addr.do_send(ClientConnnectionMsg::Link(id, client_adapter_addr));
+                new_adapter_addresses
+                    .client_conn
+                    .do_send(ClientConnnectionMsg {
+                        session_token,
+                        client_adapter,
+                        is_new: true,
+                    });
 
                 // <- Commented out for performance reasons ->
                 // self.send_server_info_to_all(ctx);
                 self.send_server_info_batched = true;
             }
-            RequestAdapterExisting(client_connection_addr, id) => {
-                if let Some(connection) = self.connections.get_mut(&id) {
+            RequestAdapterExisting(new_adapter_addresses, session_token) => {
+                if let Some(connection) = self.connections.get_mut(&session_token) {
                     connection.state = ConnectionState::Connected;
-                    connection
-                        .adapter_addr
-                        .do_send(ClientAdapterMsg::Connect(client_connection_addr.clone()));
-                    client_connection_addr.do_send(ClientConnnectionMsg::Link(
-                        id,
-                        connection.adapter_addr.clone(),
+                    connection.adapter_addr.do_send(ClientAdapterMsg::Connect(
+                        new_adapter_addresses.client_conn.clone(),
                     ));
+                    new_adapter_addresses
+                        .client_conn
+                        .do_send(ClientConnnectionMsg {
+                            session_token,
+                            client_adapter: connection.adapter_addr.clone(),
+                            is_new: false,
+                        });
                 } else {
-                    client_connection_addr.do_send(ClientConnnectionMsg::NotFound);
+                    ctx.notify(RequestAdapterNew(new_adapter_addresses));
                 }
             }
         }

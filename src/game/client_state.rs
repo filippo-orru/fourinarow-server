@@ -2,7 +2,7 @@ use super::lobby_mgr::{self, *};
 use super::msg::*;
 use super::{client_adapter::ClientAdapter, connection_mgr::ConnectionManager};
 use super::{connection_mgr::ConnectionManagerMsg, game_info::*};
-use super::{connection_mgr::Identifier, lobby::*};
+use super::{connection_mgr::SessionToken, lobby::*};
 use crate::api::users::{
     user::UserId,
     user_mgr::{self, UserManager},
@@ -11,7 +11,7 @@ use crate::api::users::{
 use actix::*;
 
 pub struct ClientState {
-    id: Identifier,
+    id: SessionToken,
     lobby_mgr: Addr<LobbyManager>,
     user_mgr: Addr<UserManager>,
     connection_mgr: Addr<ConnectionManager>,
@@ -27,7 +27,7 @@ pub enum ClientConnState {
 
 impl ClientState {
     pub fn new(
-        id: Identifier,
+        id: SessionToken,
         lobby_mgr: Addr<LobbyManager>,
         user_mgr: Addr<UserManager>,
         connection_mgr: Addr<ConnectionManager>,
