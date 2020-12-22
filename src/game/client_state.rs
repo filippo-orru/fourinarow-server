@@ -1,11 +1,8 @@
+use super::lobby_mgr::{self, *};
+use super::msg::*;
 use super::{client_adapter::ClientAdapter, connection_mgr::ConnectionManager};
-use super::{client_adapter::ClientMsgString, msg::*};
 use super::{connection_mgr::ConnectionManagerMsg, game_info::*};
 use super::{connection_mgr::SessionToken, lobby::*};
-use super::{
-    lobby_mgr::{self, *},
-    ClientConnection,
-};
 use crate::api::users::{
     user::PublicUser,
     user_mgr::{self, UserManager},
@@ -356,7 +353,10 @@ impl Actor for ClientState {
                 .do_send(user_mgr::msg::IntUserMgrMsg::StopPlaying(user_info.id));
         }
         self.connection_mgr
-            .do_send(ConnectionManagerMsg::Disconnect(self.id.clone()));
+            .do_send(ConnectionManagerMsg::Disconnect {
+                session_token: self.id.clone(),
+                is_legacy: false,
+            });
         Running::Stop
     }
 }

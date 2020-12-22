@@ -35,6 +35,7 @@ impl QueuedMessage<ServerMessage> {
 enum ClientConnectionConnectionState {
     Connected(Addr<ClientConnection>),
     Disconnected,
+    ConnectedLegacy(Addr<ClientConnection>),
 }
 
 pub struct ClientAdapter {
@@ -50,6 +51,17 @@ impl ClientAdapter {
     ) -> ClientAdapter {
         ClientAdapter {
             client_connection: ClientConnectionConnectionState::Connected(client_connection),
+            client_state: client_state_addr,
+            reliability_layer: ReliabilityLayer::default(),
+        }
+    }
+
+    pub fn legacy(
+        client_connection: Addr<ClientConnection>,
+        client_state_addr: Addr<ClientState>,
+    ) -> ClientAdapter {
+        ClientAdapter {
+            client_connection: ClientConnectionConnectionState::ConnectedLegacy(client_connection),
             client_state: client_state_addr,
             reliability_layer: ReliabilityLayer::default(),
         }
@@ -181,13 +193,24 @@ impl Handler<ClientMsgString> for ClientAdapter {
     type Result = ();
 
     fn handle(&mut self, msg: ClientMsgString, ctx: &mut Self::Context) -> Self::Result {
-        match ReliablePacketIn::parse(&msg.0) {
-            Ok(msg) => self.received_reliable_pkt(msg, ctx),
-            Err(reliability_err) => {
-                // TODO!
-                println!("   ## -> Invalid message (error: {:?})", reliability_err);
-                ctx.notify::<ReliablePacketOut>(reliability_err.into());
+        use ClientConnectionConnectionState::*;
+        match self.client_connection {
+            Connected(_) => {
+                match ReliablePacketIn::parse(&msg.0) {
+                    Ok(msg) => self.received_reliable_pkt(msg, ctx),
+                    Err(reliability_err) => {
+                        // TODO!
+                        println!("   ## -> Invalid message (error: {:?})", reliability_err);
+                        ctx.notify::<ReliablePacketOut>(reliability_err.into());
+                    }
+                }
             }
+            ConnectedLegacy(_) => {
+                if let Some(msg) = PlayerMessage::parse(&msg.0) {
+                    self.forward_message(msg, ctx);
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -207,19 +230,26 @@ impl Handler<ServerMessage> for ClientAdapter {
 impl Handler<ReliablePacketOut> for ClientAdapter {
     type Result = ();
     fn handle(&mut self, msg: ReliablePacketOut, _ctx: &mut Self::Context) {
-        if let ReliablePacketOut::Msg(id, server_msg) = msg.clone() {
-            self.reliability_layer.server_msg_q.push(QueuedMessage {
-                id,
-                msg: server_msg.clone(),
-                sent: Instant::now(),
-            });
-        }
+        match &self.client_connection {
+            ClientConnectionConnectionState::Connected(client_connection) => {
+                if let ReliablePacketOut::Msg(id, server_msg) = msg.clone() {
+                    self.reliability_layer.server_msg_q.push(QueuedMessage {
+                        id,
+                        msg: server_msg.clone(),
+                        sent: Instant::now(),
+                    });
+                }
 
-        let msg_str = msg.serialize();
-        if let ClientConnectionConnectionState::Connected(client_connection) =
-            &self.client_connection
-        {
-            client_connection.do_send(ClientMsgString(msg_str));
+                let msg_str = msg.serialize();
+                client_connection.do_send(ClientMsgString(msg_str));
+            }
+            ClientConnectionConnectionState::ConnectedLegacy(client_connection) => {
+                if let ReliablePacketOut::Msg(_, server_msg) = msg.clone() {
+                    let msg_str = server_msg.serialize();
+                    client_connection.do_send(ClientMsgString(msg_str));
+                }
+            }
+            _ => {}
         }
     }
 }

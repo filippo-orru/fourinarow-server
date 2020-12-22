@@ -3,8 +3,8 @@ use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use std::{collections::HashMap, time::Instant};
 
 use super::{
-    client_adapter::{ClientAdapter, ClientAdapterMsg},
-    client_connection::ClientConnnectionMsg,
+    client_adapter::{ClientAdapter, ClientAdapterMsg, ClientMsgString},
+    client_connection::{ClientConnnectionMsg, ConnectionType},
     client_state::{ClientState, ClientStateMessage},
     lobby_mgr::LobbyManager,
     ClientConnection,
@@ -111,13 +111,17 @@ struct Connection {
 }
 
 pub enum ConnectionManagerMsg {
-    Disconnect(SessionToken),
+    Disconnect {
+        session_token: SessionToken,
+        is_legacy: bool,
+    },
     Update(bool), // (player_in_queue): sent by lobbyManager when clients should be notified
     ChatMessage(SessionToken, String), // global chat message (sender_addr, msg)
     ChatRead(SessionToken),
     Backlink(Addr<LobbyManager>), // sent by lobbyManager when it starts to form bidirectional link
     RequestAdapterNew(NewAdapterAdresses), // sent when client first connects
     RequestAdapterExisting(NewAdapterAdresses, String), // sent when client reconnects
+    RequestAdapterLegacy(NewAdapterAdresses, String), // sent when legacy client first connects with playerMsgStr in "queue"
 }
 
 pub struct NewAdapterAdresses {
@@ -141,15 +145,26 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
             //         connection.adapter_addr.do_send(ClientAdapterMsg::Close)
             //     }
             // }
-            Disconnect(id) => {
-                // Remove this connection from list if exists
-
-                if let Some(connection) = self.connections.get_mut(&id) {
-                    connection
-                        .adapter_addr
-                        .do_send(ClientAdapterMsg::Disconnect);
-                    connection.state = ConnectionState::Disconnected(Instant::now());
+            Disconnect {
+                session_token,
+                is_legacy,
+            } => {
+                if is_legacy {
+                    // Remove this connection from list if exists
+                    if let Some(connection) = self.connections.get(&session_token).cloned() {
+                        connection.adapter_addr.do_send(ClientAdapterMsg::Close);
+                        self.connections.remove_entry(&session_token);
+                    }
+                } else {
+                    if let Some(connection) = self.connections.get_mut(&session_token) {
+                        // Set disconnected
+                        connection
+                            .adapter_addr
+                            .do_send(ClientAdapterMsg::Disconnect);
+                        connection.state = ConnectionState::Disconnected(Instant::now());
+                    }
                 }
+                self.send_server_info_batched = true;
             }
             Update(player_in_lobby) => {
                 self.player_in_queue = player_in_lobby;
@@ -204,7 +219,7 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                     .do_send(ClientConnnectionMsg {
                         session_token,
                         client_adapter,
-                        is_new: true,
+                        connection_type: ConnectionType::Reliable { is_new: true },
                     });
 
                 // <- Commented out for performance reasons ->
@@ -222,11 +237,46 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                         .do_send(ClientConnnectionMsg {
                             session_token,
                             client_adapter: connection.adapter_addr.clone(),
-                            is_new: false,
+                            connection_type: ConnectionType::Reliable { is_new: false },
                         });
                 } else {
                     ctx.notify(RequestAdapterNew(new_adapter_addresses));
                 }
+            }
+            RequestAdapterLegacy(new_adapter_addresses, str_msg) => {
+                let session_token = Self::generate_session_token();
+                let client_state_addr = ClientState::new(
+                    session_token.clone(),
+                    new_adapter_addresses.lobby_mgr,
+                    new_adapter_addresses.user_mgr,
+                    ctx.address(),
+                )
+                .start();
+                let client_adapter = ClientAdapter::legacy(
+                    new_adapter_addresses.client_conn.clone(),
+                    client_state_addr.clone(),
+                )
+                .start();
+                // Add this new connection to list
+                self.connections.insert(
+                    session_token.clone(),
+                    Connection {
+                        state_addr: client_state_addr.clone(),
+                        adapter_addr: client_adapter.clone(),
+                        state: ConnectionState::Connected,
+                    },
+                );
+                // Backlink
+                new_adapter_addresses
+                    .client_conn
+                    .do_send(ClientConnnectionMsg {
+                        session_token,
+                        client_adapter: client_adapter.clone(),
+                        connection_type: ConnectionType::Legacy,
+                    });
+
+                client_adapter.do_send(ClientMsgString(str_msg));
+                self.send_server_info_batched = true;
             }
         }
         Ok(())

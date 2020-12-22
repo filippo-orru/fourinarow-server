@@ -212,7 +212,7 @@ impl ServerMessage {
 #[derive(Debug, Clone, Copy)]
 pub enum SrvMsgError {
     Internal,
-    InvalidMessage,
+    // InvalidMessage,
     LobbyNotFound,
     LobbyFull,
     InvalidColumn,
@@ -234,7 +234,7 @@ impl SrvMsgError {
         use SrvMsgError::*;
         match self {
             Internal => "Internal".to_owned(),
-            InvalidMessage => "InvalidMessage".to_owned(),
+            // InvalidMessage => "InvalidMessage".to_owned(),
             NotYourTurn => "NotYourTurn".to_owned(),
             NotInLobby => "NotInLobby".to_owned(),
             LobbyNotFound => "LobbyNotFound".to_owned(),
