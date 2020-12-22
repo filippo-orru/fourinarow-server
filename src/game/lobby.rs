@@ -60,7 +60,8 @@ pub enum ClientLobbyMessage {
     PlayerLeaving,
     PlayAgainRequest,
     PlaceChip(usize),
-    ChatMessage(String),
+    ChatMessage(String, Option<String>), // content, sender
+    ChatRead,
 }
 
 impl Message for ClientLobbyMessageNamed {
@@ -190,10 +191,18 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                     Err(())
                 }
             },
-            ChatMessage(msg) => match self.game_state {
+            ChatMessage(msg, sender) => match self.game_state {
                 LobbyState::TwoPlayers(_, ref host_addr, ref client_addr) => {
                     let msg_recipient = msg_named.sender.other().select(host_addr, client_addr);
-                    msg_recipient.do_send(ServerMessage::ChatMessage(false, msg));
+                    msg_recipient.do_send(ServerMessage::ChatMessage(false, msg, sender));
+                    Ok(())
+                }
+                _ => Err(()),
+            },
+            ChatRead => match self.game_state {
+                LobbyState::TwoPlayers(_, ref host_addr, ref client_addr) => {
+                    let msg_recipient = msg_named.sender.other().select(host_addr, client_addr);
+                    msg_recipient.do_send(ServerMessage::ChatRead(false));
                     Ok(())
                 }
                 _ => Err(()),

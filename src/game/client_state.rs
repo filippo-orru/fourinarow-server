@@ -1,10 +1,13 @@
-use super::lobby_mgr::{self, *};
-use super::msg::*;
 use super::{client_adapter::ClientAdapter, connection_mgr::ConnectionManager};
+use super::{client_adapter::ClientMsgString, msg::*};
 use super::{connection_mgr::ConnectionManagerMsg, game_info::*};
 use super::{connection_mgr::SessionToken, lobby::*};
+use super::{
+    lobby_mgr::{self, *},
+    ClientConnection,
+};
 use crate::api::users::{
-    user::UserId,
+    user::PublicUser,
     user_mgr::{self, UserManager},
 };
 
@@ -17,7 +20,7 @@ pub struct ClientState {
     connection_mgr: Addr<ConnectionManager>,
     backlinked_state: BacklinkState,
     conn_state: ClientConnState,
-    maybe_user_id: Option<UserId>,
+    maybe_user_info: Option<PublicUser>,
 }
 
 pub enum ClientConnState {
@@ -39,7 +42,7 @@ impl ClientState {
             connection_mgr,
             backlinked_state: BacklinkState::Waiting,
             conn_state: ClientConnState::Idle,
-            maybe_user_id: None,
+            maybe_user_info: None,
         }
     }
 }
@@ -175,7 +178,7 @@ impl Handler<PlayerMessage> for ClientState {
                         self.lobby_mgr
                             .send(lobby_mgr::LobbyRequest::NewLobby(
                                 client_conn_addr.clone(),
-                                self.maybe_user_id,
+                                self.maybe_user_info.clone().map(|u| u.id),
                                 kind,
                             ))
                             .into_actor(self)
@@ -207,7 +210,7 @@ impl Handler<PlayerMessage> for ClientState {
                             .send(lobby_mgr::LobbyRequest::JoinLobby(
                                 id,
                                 client_conn_addr.clone(),
-                                self.maybe_user_id,
+                                self.maybe_user_info.clone().map(|u| u.id),
                                 LobbyKind::Private,
                             ))
                             .into_actor(self)
@@ -235,9 +238,9 @@ impl Handler<PlayerMessage> for ClientState {
                             .do_send(ServerMessage::Error(Some(SrvMsgError::AlreadyInLobby)));
                         return err;
                     }
-                    if let Some(id) = self.maybe_user_id {
+                    if let Some(user_info) = self.maybe_user_info.clone() {
                         self.user_mgr
-                            .do_send(user_mgr::msg::IntUserMgrMsg::StopPlaying(id));
+                            .do_send(user_mgr::msg::IntUserMgrMsg::StopPlaying(user_info.id));
                     }
                     let client_conn_addr = client_conn_addr.clone();
                     self.user_mgr
@@ -250,8 +253,8 @@ impl Handler<PlayerMessage> for ClientState {
                         .then(move |res, act, _| {
                             if let Ok(maybe_id) = res {
                                 match maybe_id {
-                                    Ok(id) => {
-                                        act.maybe_user_id = Some(id);
+                                    Ok(user) => {
+                                        act.maybe_user_info = Some(user);
                                         // act.user_mgr.do_send(IntUserMgrMsg::StartPlaying(id));
                                         client_conn_addr.do_send(ServerMessage::Okay);
                                     }
@@ -272,9 +275,9 @@ impl Handler<PlayerMessage> for ClientState {
 
                 BattleReq(friend_id) => {
                     if let ClientConnState::Idle = &self.conn_state {
-                        if let Some(my_user_id) = self.maybe_user_id {
+                        if let Some(user_info) = self.maybe_user_info.clone() {
                             self.user_mgr.do_send(user_mgr::msg::BattleReq {
-                                sender: (client_conn_addr.clone(), my_user_id),
+                                sender: (client_conn_addr.clone(), user_info.id),
                                 receiver: friend_id,
                             });
                             ok
@@ -291,15 +294,32 @@ impl Handler<PlayerMessage> for ClientState {
                 }
                 ChatMessage(msg) => {
                     if let ClientConnState::InLobby(player, lobby_addr) = &self.conn_state {
+                        let username = if let Some(user_info) = self.maybe_user_info.clone() {
+                            Some(user_info.username)
+                        } else {
+                            None
+                        };
                         lobby_addr.do_send(ClientLobbyMessageNamed {
                             sender: *player,
-                            msg: ClientLobbyMessage::ChatMessage(msg),
+                            msg: ClientLobbyMessage::ChatMessage(msg, username),
                         });
                     } else {
                         self.connection_mgr
                             .do_send(ConnectionManagerMsg::ChatMessage(self.id.clone(), msg));
                     }
                     client_conn_addr.do_send(ServerMessage::Okay);
+                    ok
+                }
+                ChatRead => {
+                    if let ClientConnState::InLobby(player, lobby_addr) = &self.conn_state {
+                        lobby_addr.do_send(ClientLobbyMessageNamed {
+                            sender: *player,
+                            msg: ClientLobbyMessage::ChatRead,
+                        });
+                    } else {
+                        self.connection_mgr
+                            .do_send(ConnectionManagerMsg::ChatRead(self.id.clone()));
+                    }
                     ok
                 }
             }
@@ -331,9 +351,9 @@ impl Actor for ClientState {
 
     fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
         // println!("ClientState: Stopping");
-        if let Some(id) = self.maybe_user_id {
+        if let Some(user_info) = self.maybe_user_info.clone() {
             self.user_mgr
-                .do_send(user_mgr::msg::IntUserMgrMsg::StopPlaying(id));
+                .do_send(user_mgr::msg::IntUserMgrMsg::StopPlaying(user_info.id));
         }
         self.connection_mgr
             .do_send(ConnectionManagerMsg::Disconnect(self.id.clone()));

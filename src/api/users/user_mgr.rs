@@ -146,18 +146,16 @@ pub mod msg {
         }
     }
 
-    /// Username, Password
     pub struct StartPlaying {
         pub username: String,
         pub password: String,
         pub addr: Addr<ClientAdapter>,
     }
-    // (pub String, pub String);
     impl Message for StartPlaying {
-        type Result = Result<UserId, SrvMsgError>;
+        type Result = Result<PublicUser, SrvMsgError>;
     }
     impl Handler<StartPlaying> for UserManager {
-        type Result = Result<UserId, SrvMsgError>;
+        type Result = Result<PublicUser, SrvMsgError>;
         fn handle(&mut self, msg: StartPlaying, _ctx: &mut Self::Context) -> Self::Result {
             if let Some(user) = self
                 .users
@@ -169,7 +167,7 @@ pub mod msg {
                 } else {
                     user.playing = Some(msg.addr);
                 }
-                Ok(user.id)
+                Ok(PublicUser::from(user.clone(), &self.users))
             } else {
                 Err(SrvMsgError::IncorrectCredentials)
             }

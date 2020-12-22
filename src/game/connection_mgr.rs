@@ -114,6 +114,7 @@ pub enum ConnectionManagerMsg {
     Disconnect(SessionToken),
     Update(bool), // (player_in_queue): sent by lobbyManager when clients should be notified
     ChatMessage(SessionToken, String), // global chat message (sender_addr, msg)
+    ChatRead(SessionToken),
     Backlink(Addr<LobbyManager>), // sent by lobbyManager when it starts to form bidirectional link
     RequestAdapterNew(NewAdapterAdresses), // sent when client first connects
     RequestAdapterExisting(NewAdapterAdresses, String), // sent when client reconnects
@@ -157,9 +158,18 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
             ChatMessage(sender_id, msg) => {
                 for (id, connection) in self.connections.iter() {
                     if id != &sender_id {
-                        connection
-                            .state_addr
-                            .do_send(ServerMessage::ChatMessage(true, msg.clone()));
+                        connection.state_addr.do_send(ServerMessage::ChatMessage(
+                            true,
+                            msg.clone(),
+                            Some(sender_id[0..5].into()),
+                        ));
+                    }
+                }
+            }
+            ChatRead(sender_id) => {
+                for (id, connection) in self.connections.iter() {
+                    if id != &sender_id {
+                        connection.state_addr.do_send(ServerMessage::ChatRead(true));
                     }
                 }
             }

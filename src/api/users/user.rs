@@ -209,7 +209,7 @@ pub enum GameKind {
     Simple,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct PublicUser {
     pub id: UserId,
     pub username: String,
@@ -240,7 +240,7 @@ impl PublicUser {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Friend {
     id: UserId,
     username: String,

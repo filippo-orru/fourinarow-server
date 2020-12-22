@@ -1,10 +1,10 @@
 pub mod client_adapter;
 pub mod client_connection;
+pub mod client_state;
 pub mod connection_mgr;
 pub mod lobby_mgr;
 pub mod msg;
 
-mod client_state;
 mod game_info;
 mod lobby;
 

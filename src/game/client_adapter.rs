@@ -186,7 +186,7 @@ impl Handler<ClientMsgString> for ClientAdapter {
             Err(reliability_err) => {
                 // TODO!
                 println!("   ## -> Invalid message (error: {:?})", reliability_err);
-                ctx.notify(ServerMessage::Error(None));
+                ctx.notify::<ReliablePacketOut>(reliability_err.into());
             }
         }
     }

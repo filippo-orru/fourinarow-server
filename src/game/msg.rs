@@ -14,19 +14,19 @@ pub enum ReliablePacketIn {
 
 impl ReliablePacketIn {
     pub fn parse(orig: &str) -> Result<ReliablePacketIn, ReliabilityError> {
-        let uppercase = orig.to_uppercase();
-        let parts: Vec<_> = uppercase.split("::").collect();
-        return if parts.len() == 2 {
-            if parts[0] == "ACK" {
-                if let Ok(id) = parts[1].parse::<usize>() {
-                    Ok(ReliablePacketIn::Ack(id))
-                } else {
-                    Err(ReliabilityError::InvalidFormat)
-                }
+        let uppercase: String = if let Some(u) = orig.split("::").next() {
+            u.into()
+        } else {
+            return Err(ReliabilityError::InvalidFormat);
+        };
+        let parts: Vec<_> = orig.split("::").collect();
+        return if parts.len() == 2 && uppercase == "ACK" {
+            if let Ok(id) = parts[1].parse::<usize>() {
+                Ok(ReliablePacketIn::Ack(id))
             } else {
-                Err(ReliabilityError::UnknownMessage)
+                Err(ReliabilityError::InvalidFormat)
             }
-        } else if parts.len() == 3 {
+        } else if parts.len() == 3 && uppercase == "MSG" {
             if let Ok(id) = parts[1].parse::<usize>() {
                 if let Some(player_msg) = PlayerMessage::parse(parts[2]) {
                     Ok(ReliablePacketIn::Msg(id, player_msg))
@@ -37,7 +37,7 @@ impl ReliablePacketIn {
                 Err(ReliabilityError::InvalidFormat)
             }
         } else {
-            Err(ReliabilityError::Unknown)
+            Err(ReliabilityError::UnknownMessage)
         };
     }
 }
@@ -46,17 +46,11 @@ impl ReliablePacketIn {
 pub enum ReliablePacketOut {
     Ack(usize),                // Acknowledge the client's message with that id
     Msg(usize, ServerMessage), // Actual message with id and content
+    Err(ReliabilityError),
 }
 
 impl Message for ReliablePacketOut {
     type Result = ();
-}
-#[derive(Debug, Clone)]
-pub enum ReliabilityError {
-    InvalidContent, // Message content could not be parsed
-    InvalidFormat,  // ReliableMessage could not be parsed
-    UnknownMessage, // Correct format but unknown keyword (ack, syn, msg)
-    Unknown,        // all other errors
 }
 
 impl ReliablePacketOut {
@@ -65,7 +59,33 @@ impl ReliablePacketOut {
         match self {
             Ack(id) => format!("ACK::{}", id),
             Msg(id, msg) => format!("MSG::{}::{}", id, msg.serialize()),
+            Err(err) => format!("ERR::{}", err.serialize()),
         }
+    }
+}
+#[derive(Debug, Clone)]
+pub enum ReliabilityError {
+    InvalidContent, // Message content could not be parsed
+    InvalidFormat,  // ReliableMessage could not be parsed
+    UnknownMessage, // Correct format but unknown keyword (ack, syn, msg)
+                    //Unknown,        // all other errors
+}
+impl ReliabilityError {
+    pub fn serialize(self) -> String {
+        use ReliabilityError::*;
+        match self {
+            InvalidContent => "INVALID_CONTENT",
+            InvalidFormat => "INVALID_FORMAT",
+            UnknownMessage => "UNKNOWN_MESSAGE",
+            //Unknown => "UNKNOWN",
+        }
+        .into()
+    }
+}
+
+impl Into<ReliablePacketOut> for ReliabilityError {
+    fn into(self) -> ReliablePacketOut {
+        ReliablePacketOut::Err(self)
     }
 }
 
@@ -136,7 +156,8 @@ pub enum ServerMessage {
     Error(Option<SrvMsgError>),
     BattleReq(UserId, GameId),
     CurrentServerState(usize, bool), // connected players, someone wants to play
-    ChatMessage(bool, String),       // global, message
+    ChatMessage(bool, String, Option<String>), // is_global, message, sender_name
+    ChatRead(bool),                  // is_global
 }
 
 impl ServerMessage {
@@ -174,10 +195,16 @@ impl ServerMessage {
                 "CURRENT_SERVER_STATE:{}:{}",
                 connected_players, player_waiting
             ),
-            ChatMessage(is_global, message) => {
+            ChatMessage(is_global, message, maybe_sender) => {
+                let sender_name = if let Some(sender) = maybe_sender {
+                    sender
+                } else {
+                    "".to_string()
+                };
                 let encoded_message = base64::encode_config(message, base64::STANDARD);
-                format!("CHAT_MSG:{}:{}", is_global, encoded_message)
+                format!("CHAT_MSG:{}:{}:{}", is_global, encoded_message, sender_name)
             }
+            ChatRead(is_global) => format!("CHAT_READ:{}", is_global),
         }
     }
 }
@@ -248,6 +275,7 @@ pub enum PlayerMessage {
     Login(String, String),
     BattleReq(UserId),
     ChatMessage(String),
+    ChatRead,
 }
 
 impl PlayerMessage {
@@ -300,6 +328,8 @@ impl PlayerMessage {
                     return Some(ChatMessage(decoded_msg));
                 }
             }
+        } else if s == "CHAT_READ" {
+            return Some(ChatRead);
         }
         None
     }
