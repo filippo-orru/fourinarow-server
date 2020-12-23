@@ -124,19 +124,6 @@ impl ClientConnection {
                                 },
                                 str_msg.clone(),
                             ));
-                    // let state_addr = ClientState::new(
-                    //     ConnectionManager::generate_session_token(),
-                    //     self.lobby_mgr.clone(),
-                    //     self.user_mgr.clone(),
-                    //     self.connection_mgr.clone(),
-                    // )
-                    // .start();
-                    // state_addr.do_send(ClientStateMessage::BackLinkLegacy(ctx.address()));
-                    // self.connection_state =
-                    //     ClientAdapterConnectionState::ConnectedLegacy(state_addr.clone());
-                    // state_addr.do_send(player_msg);
-
-                    // TODO ^^
                     } else {
                         self.text(ctx, "NOT_CONNECTED");
                     }

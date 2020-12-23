@@ -281,7 +281,8 @@ pub enum PlayerMessage {
 impl PlayerMessage {
     pub fn parse(orig: &str) -> Option<PlayerMessage> {
         let s = orig.to_uppercase();
-        if s.len() > 200 {
+        if s.len() > 1000 {
+            // chat messages might be long
             return None;
         }
         use PlayerMessage::*;
