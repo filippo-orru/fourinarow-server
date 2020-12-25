@@ -122,7 +122,7 @@ impl ClientConnection {
                                     lobby_mgr: self.lobby_mgr.clone(),
                                     user_mgr: self.user_mgr.clone(),
                                 },
-                                str_msg.clone(),
+                                Some(str_msg.clone()),
                             ));
                     } else {
                         self.text(ctx, "NOT_CONNECTED");
@@ -229,6 +229,19 @@ impl Actor for ClientConnection {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         self.hb(ctx);
+        ctx.run_later(Duration::from_secs(5), |act, ctx| {
+            if let ClientAdapterConnectionState::NotConnected = act.connection_state {
+                act.connection_mgr
+                    .do_send(ConnectionManagerMsg::RequestAdapterLegacy(
+                        NewAdapterAdresses {
+                            client_conn: ctx.address(),
+                            lobby_mgr: act.lobby_mgr.clone(),
+                            user_mgr: act.user_mgr.clone(),
+                        },
+                        None,
+                    ));
+            }
+        });
     }
 
     fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {

@@ -121,7 +121,7 @@ pub enum ConnectionManagerMsg {
     Backlink(Addr<LobbyManager>), // sent by lobbyManager when it starts to form bidirectional link
     RequestAdapterNew(NewAdapterAdresses), // sent when client first connects
     RequestAdapterExisting(NewAdapterAdresses, String), // sent when client reconnects
-    RequestAdapterLegacy(NewAdapterAdresses, String), // sent when legacy client first connects with playerMsgStr in "queue"
+    RequestAdapterLegacy(NewAdapterAdresses, Option<String>), // sent when legacy client first connects with playerMsgStr in "queue"
 }
 
 pub struct NewAdapterAdresses {
@@ -243,7 +243,7 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                     ctx.notify(RequestAdapterNew(new_adapter_addresses));
                 }
             }
-            RequestAdapterLegacy(new_adapter_addresses, str_msg) => {
+            RequestAdapterLegacy(new_adapter_addresses, maybe_str_msg) => {
                 let session_token = Self::generate_session_token();
                 let client_state_addr = ClientState::new(
                     session_token.clone(),
@@ -274,8 +274,9 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                         client_adapter: client_adapter.clone(),
                         connection_type: ConnectionType::Legacy,
                     });
-
-                client_adapter.do_send(ClientMsgString(str_msg));
+                if let Some(str_msg) = maybe_str_msg {
+                    client_adapter.do_send(ClientMsgString(str_msg));
+                }
                 self.send_server_info_batched = true;
             }
         }
