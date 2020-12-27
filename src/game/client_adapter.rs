@@ -195,7 +195,7 @@ impl Handler<ClientMsgString> for ClientAdapter {
     fn handle(&mut self, msg: ClientMsgString, ctx: &mut Self::Context) -> Self::Result {
         use ClientConnectionConnectionState::*;
         match self.client_connection {
-            Connected(_) => {
+            Connected(_) | Disconnected => {
                 match ReliablePacketIn::parse(&msg.0) {
                     Ok(msg) => self.received_reliable_pkt(msg, ctx),
                     Err(reliability_err) => {
@@ -210,7 +210,6 @@ impl Handler<ClientMsgString> for ClientAdapter {
                     self.forward_message(msg, ctx);
                 }
             }
-            _ => {}
         }
     }
 }
@@ -249,7 +248,15 @@ impl Handler<ReliablePacketOut> for ClientAdapter {
                     client_connection.do_send(ClientMsgString(msg_str));
                 }
             }
-            _ => {}
+            ClientConnectionConnectionState::Disconnected => {
+                if let ReliablePacketOut::Msg(id, server_msg) = msg.clone() {
+                    self.reliability_layer.server_msg_q.push(QueuedMessage {
+                        id,
+                        msg: server_msg.clone(),
+                        sent: Instant::now(),
+                    });
+                }
+            }
         }
     }
 }
