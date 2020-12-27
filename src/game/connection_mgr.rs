@@ -140,11 +140,6 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
     fn handle(&mut self, msg: ConnectionManagerMsg, ctx: &mut Self::Context) -> Self::Result {
         use ConnectionManagerMsg::*;
         match msg {
-            // Close(id) => {
-            //     if let Some(connection) = self.connections.remove(id) {
-            //         connection.adapter_addr.do_send(ClientAdapterMsg::Close)
-            //     }
-            // }
             Disconnect {
                 session_token,
                 is_legacy,

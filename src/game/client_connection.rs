@@ -138,7 +138,16 @@ impl ClientConnection {
                 //     }
             }
             ClientAdapterConnectionState::Connected(_, adapter_addr) => {
-                adapter_addr.do_send(ClientMsgString(str_msg));
+                adapter_addr
+                    .send(ClientMsgString(str_msg))
+                    .into_actor(self)
+                    .then(move |res, _act, ctx| {
+                        if res.is_err() {
+                            ctx.stop();
+                        }
+                        fut::ready(())
+                    })
+                    .wait(ctx);
             }
             ClientAdapterConnectionState::Pending => {
                 self.text(ctx, "WAIT");
