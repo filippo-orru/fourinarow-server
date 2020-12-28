@@ -76,6 +76,7 @@ fn start_server(bind_addr: &str) -> Server {
             })))
             .default_service(web::to(HttpResponse::NotFound))
     })
+    .keep_alive(1)
     .bind(bind_addr)
     .expect("Failed to bind address.")
     .run()

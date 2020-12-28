@@ -16,6 +16,7 @@ const HB_INTERVAL: u64 = 2;
 const HB_TIMEOUT: u64 = 8;
 
 pub struct ClientConnection {
+    created_at: Instant,
     hb: Instant,
     connection_state: ClientAdapterConnectionState,
     connection_mgr: Addr<ConnectionManager>,
@@ -37,6 +38,7 @@ impl ClientConnection {
         connection_mgr: Addr<ConnectionManager>,
     ) -> ClientConnection {
         ClientConnection {
+            created_at: Instant::now(),
             hb: Instant::now(),
             connection_mgr,
             lobby_mgr,
@@ -237,6 +239,7 @@ impl Actor for ClientConnection {
     type Context = ws::WebsocketContext<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        // println!("ClientConn: Starting");
         self.hb(ctx);
         ctx.run_later(Duration::from_secs(5), |act, ctx| {
             if let ClientAdapterConnectionState::NotConnected = act.connection_state {
@@ -253,11 +256,16 @@ impl Actor for ClientConnection {
         });
     }
 
-    fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
+    fn stopping(&mut self, ctx: &mut Self::Context) -> Running {
+        // println!(
+        //     "ClientConn: Stopping (age: {:.3})",
+        //     self.created_at.elapsed().as_secs_f32()
+        // );
         match &self.connection_state {
             ClientAdapterConnectionState::Connected(id, _) => {
                 self.connection_mgr
                     .do_send(ConnectionManagerMsg::Disconnect {
+                        address: ctx.address(),
                         session_token: id.clone(),
                         is_legacy: false,
                     });
@@ -265,6 +273,7 @@ impl Actor for ClientConnection {
             ClientAdapterConnectionState::ConnectedLegacy(id, _) => {
                 self.connection_mgr
                     .do_send(ConnectionManagerMsg::Disconnect {
+                        address: ctx.address(),
                         session_token: id.clone(),
                         is_legacy: true,
                     });

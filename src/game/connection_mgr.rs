@@ -99,7 +99,7 @@ impl ConnectionManager {
 
 #[derive(Clone)]
 enum ConnectionState {
-    Connected,
+    Connected(Addr<ClientConnection>),
     Disconnected(Instant),
 }
 
@@ -112,6 +112,7 @@ struct Connection {
 
 pub enum ConnectionManagerMsg {
     Disconnect {
+        address: Addr<ClientConnection>,
         session_token: SessionToken,
         is_legacy: bool,
     },
@@ -141,6 +142,7 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
         use ConnectionManagerMsg::*;
         match msg {
             Disconnect {
+                address,
                 session_token,
                 is_legacy,
             } => {
@@ -152,11 +154,18 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                     }
                 } else {
                     if let Some(connection) = self.connections.get_mut(&session_token) {
-                        // Set disconnected
-                        connection
-                            .adapter_addr
-                            .do_send(ClientAdapterMsg::Disconnect);
-                        connection.state = ConnectionState::Disconnected(Instant::now());
+                        if let ConnectionState::Connected(current_addr) = &connection.state {
+                            // There is a case in which the client reconnects before the old connection times out / is closed.
+                            // We don't want to disconnect it, so check if the original creator addr of the client state is the same
+                            // as the one requesting the disconnect
+                            if address == *current_addr {
+                                // Set disconnected
+                                connection
+                                    .adapter_addr
+                                    .do_send(ClientAdapterMsg::Disconnect);
+                                connection.state = ConnectionState::Disconnected(Instant::now());
+                            }
+                        }
                     }
                 }
                 self.send_server_info_batched = true;
@@ -206,7 +215,9 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                     Connection {
                         state_addr: client_state_addr.clone(),
                         adapter_addr: client_adapter.clone(),
-                        state: ConnectionState::Connected,
+                        state: ConnectionState::Connected(
+                            new_adapter_addresses.client_conn.clone(),
+                        ),
                     },
                 );
                 new_adapter_addresses
@@ -223,17 +234,26 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
             }
             RequestAdapterExisting(new_adapter_addresses, session_token) => {
                 if let Some(connection) = self.connections.get_mut(&session_token) {
-                    connection.state = ConnectionState::Connected;
+                    connection.state =
+                        ConnectionState::Connected(new_adapter_addresses.client_conn.clone());
                     connection.adapter_addr.do_send(ClientAdapterMsg::Connect(
                         new_adapter_addresses.client_conn.clone(),
                     ));
                     new_adapter_addresses
                         .client_conn
                         .do_send(ClientConnnectionMsg {
-                            session_token,
+                            session_token: session_token.clone(),
                             client_adapter: connection.adapter_addr.clone(),
                             connection_type: ConnectionType::Reliable { is_new: false },
                         });
+                // println!(
+                //     "ConnMgr: ReqAdapterExisting({:?}) found",
+                //     session_token
+                //         .chars()
+                //         .into_iter()
+                //         .take(3)
+                //         .collect::<String>()
+                // );
                 } else {
                     ctx.notify(RequestAdapterNew(new_adapter_addresses));
                 }
@@ -258,7 +278,9 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                     Connection {
                         state_addr: client_state_addr.clone(),
                         adapter_addr: client_adapter.clone(),
-                        state: ConnectionState::Connected,
+                        state: ConnectionState::Connected(
+                            new_adapter_addresses.client_conn.clone(),
+                        ),
                     },
                 );
                 // Backlink

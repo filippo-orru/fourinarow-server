@@ -44,8 +44,12 @@ impl ReliablePacketIn {
 
 #[derive(Debug, Clone)]
 pub enum ReliablePacketOut {
-    Ack(usize),                // Acknowledge the client's message with that id
-    Msg(usize, ServerMessage), // Actual message with id and content
+    Ack(usize), // Acknowledge the client's message with that id
+    Msg {
+        id: usize,
+        msg: ServerMessage,
+        retry_count: usize,
+    },
     Err(ReliabilityError),
 }
 
@@ -58,7 +62,11 @@ impl ReliablePacketOut {
         use ReliablePacketOut::*;
         match self {
             Ack(id) => format!("ACK::{}", id),
-            Msg(id, msg) => format!("MSG::{}::{}", id, msg.serialize()),
+            Msg {
+                id,
+                msg,
+                retry_count: _,
+            } => format!("MSG::{}::{}", id, msg.serialize()),
             Err(err) => format!("ERR::{}", err.serialize()),
         }
     }

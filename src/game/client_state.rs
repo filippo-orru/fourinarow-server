@@ -166,7 +166,6 @@ impl Handler<PlayerMessage> for ClientState {
                         }
                     }
                     self.conn_state = ClientConnState::Idle;
-                    // ctx.stop();
                     ok
                 }
                 LobbyRequest(kind) => {
@@ -352,11 +351,6 @@ impl Actor for ClientState {
             self.user_mgr
                 .do_send(user_mgr::msg::IntUserMgrMsg::StopPlaying(user_info.id));
         }
-        self.connection_mgr
-            .do_send(ConnectionManagerMsg::Disconnect {
-                session_token: self.id.clone(),
-                is_legacy: false,
-            });
         Running::Stop
     }
 }

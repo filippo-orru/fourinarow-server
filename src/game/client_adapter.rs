@@ -6,8 +6,9 @@ use actix::*;
 
 use std::time::{Duration, Instant};
 
-const QUEUE_CHECK_INTERVAL_MS: u64 = 500;
-const QUEUE_RESEND_TIMEOUT_MS: u128 = 5000; // TODO change back to 1000
+const QUEUE_CHECK_INTERVAL_MS: u64 = 250;
+const QUEUE_RESEND_TIMEOUT_MS: u128 = 700;
+const RPKT_RETRY_LIMIT: usize = 16;
 
 pub const MIN_VERSION: usize = 2;
 
@@ -24,11 +25,27 @@ struct QueuedMessage<T> {
     sent: Instant,
     id: usize,
     msg: T,
+    retry_count: usize,
+}
+
+impl QueuedMessage<PlayerMessage> {
+    fn new(id: usize, msg: PlayerMessage) -> Self {
+        QueuedMessage {
+            sent: Instant::now(),
+            id,
+            msg,
+            retry_count: 0,
+        }
+    }
 }
 
 impl QueuedMessage<ServerMessage> {
     fn to_packet(self) -> ReliablePacketOut {
-        ReliablePacketOut::Msg(self.id, self.msg)
+        ReliablePacketOut::Msg {
+            id: self.id,
+            msg: self.msg,
+            retry_count: self.retry_count,
+        }
     }
 }
 
@@ -154,11 +171,9 @@ impl ClientAdapter {
     }
 
     fn queue_message(&mut self, id: usize, msg: PlayerMessage) {
-        self.reliability_layer.player_msg_q.push(QueuedMessage {
-            sent: Instant::now(),
-            id,
-            msg: msg.clone(),
-        });
+        self.reliability_layer
+            .player_msg_q
+            .push(QueuedMessage::new(id, msg.clone()));
     }
 
     fn forward_message(&mut self, msg: PlayerMessage, ctx: &mut Context<Self>) {
@@ -218,24 +233,35 @@ impl Handler<ServerMessage> for ClientAdapter {
     type Result = Result<(), ()>;
     fn handle(&mut self, msg: ServerMessage, ctx: &mut Self::Context) -> Self::Result {
         self.reliability_layer.server_msg_index += 1;
-        ctx.notify(ReliablePacketOut::Msg(
-            self.reliability_layer.server_msg_index,
+        ctx.notify(ReliablePacketOut::Msg {
+            id: self.reliability_layer.server_msg_index,
             msg,
-        ));
+            retry_count: 0,
+        });
         Ok(())
     }
 }
 
 impl Handler<ReliablePacketOut> for ClientAdapter {
     type Result = ();
-    fn handle(&mut self, msg: ReliablePacketOut, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: ReliablePacketOut, ctx: &mut Self::Context) {
         match &self.client_connection {
             ClientConnectionConnectionState::Connected(client_connection) => {
-                if let ReliablePacketOut::Msg(id, server_msg) = msg.clone() {
+                if let ReliablePacketOut::Msg {
+                    id,
+                    msg,
+                    retry_count,
+                } = msg.clone()
+                {
+                    if retry_count > RPKT_RETRY_LIMIT {
+                        ctx.stop();
+                        return;
+                    }
                     self.reliability_layer.server_msg_q.push(QueuedMessage {
                         id,
-                        msg: server_msg.clone(),
+                        msg: msg.clone(),
                         sent: Instant::now(),
+                        retry_count: retry_count + 1,
                     });
                 }
 
@@ -243,17 +269,28 @@ impl Handler<ReliablePacketOut> for ClientAdapter {
                 client_connection.do_send(ClientMsgString(msg_str));
             }
             ClientConnectionConnectionState::ConnectedLegacy(client_connection) => {
-                if let ReliablePacketOut::Msg(_, server_msg) = msg.clone() {
-                    let msg_str = server_msg.serialize();
+                if let ReliablePacketOut::Msg {
+                    id: _,
+                    msg,
+                    retry_count: _,
+                } = msg.clone()
+                {
+                    let msg_str = msg.serialize();
                     client_connection.do_send(ClientMsgString(msg_str));
                 }
             }
             ClientConnectionConnectionState::Disconnected => {
-                if let ReliablePacketOut::Msg(id, server_msg) = msg.clone() {
+                if let ReliablePacketOut::Msg {
+                    id,
+                    msg,
+                    retry_count,
+                } = msg.clone()
+                {
                     self.reliability_layer.server_msg_q.push(QueuedMessage {
                         id,
-                        msg: server_msg.clone(),
+                        msg: msg.clone(),
                         sent: Instant::now(),
+                        retry_count,
                     });
                 }
             }
@@ -280,15 +317,19 @@ impl Message for ClientAdapterMsg {
 impl Handler<ClientAdapterMsg> for ClientAdapter {
     type Result = ();
     fn handle(&mut self, msg: ClientAdapterMsg, ctx: &mut Self::Context) -> Self::Result {
+        // print!("ClientAdapter recv ClientAdapterMsg: ");
         match msg {
             ClientAdapterMsg::Connect(client_connection_addr) => {
+                // println!("Connect");
                 self.client_connection =
                     ClientConnectionConnectionState::Connected(client_connection_addr);
             }
             ClientAdapterMsg::Disconnect => {
+                // println!("Disconnect");
                 self.client_connection = ClientConnectionConnectionState::Disconnected;
             }
             ClientAdapterMsg::Close => {
+                // println!("Close");
                 ctx.stop();
             }
         }
