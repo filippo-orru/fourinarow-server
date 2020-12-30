@@ -16,7 +16,6 @@ const HB_INTERVAL: u64 = 2;
 const HB_TIMEOUT: u64 = 8;
 
 pub struct ClientConnection {
-    created_at: Instant,
     hb: Instant,
     connection_state: ClientAdapterConnectionState,
     connection_mgr: Addr<ConnectionManager>,
@@ -38,7 +37,6 @@ impl ClientConnection {
         connection_mgr: Addr<ConnectionManager>,
     ) -> ClientConnection {
         ClientConnection {
-            created_at: Instant::now(),
             hb: Instant::now(),
             connection_mgr,
             lobby_mgr,
