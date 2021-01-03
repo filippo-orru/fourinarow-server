@@ -64,7 +64,7 @@ fn start_server(bind_addr: &str) -> Server {
                         Cors::default()
                             .allowed_methods(vec!["GET", "POST", "DELETE"])
                             .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
-                            .allowed_origin("localhost")
+                            .allowed_origin("*.fourinarow.ml")
                             .allowed_origin("fourinarow.ml")
                             .max_age(3600),
                     )
