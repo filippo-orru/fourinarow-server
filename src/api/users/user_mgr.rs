@@ -1,72 +1,24 @@
 use super::{super::ApiError, user::*};
-use crate::game::client_adapter::ClientAdapter;
 use crate::game::lobby_mgr::{self, LobbyManager};
 use crate::game::msg::*;
-// use crate::game::msg::SrvMsgError;
+use crate::{database::DatabaseManager, game::client_adapter::ClientAdapter};
+
 use actix::*;
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::io;
+use std::sync::Arc;
 
-const USERS_PATH: &str = "data/users.json";
-const GAMES_PATH: &str = "data/games.json";
 const SR_PER_WIN: i32 = 25;
 
-/// in seconds
-const DB_SAVE_INTERVAL: u64 = 5 * 60; // = 5 minutes
-
 pub struct UserManager {
-    users: HashMap<UserId, User>,
-    games: Vec<PlayedGameInfo>,
+    db: Arc<DatabaseManager>,
     lobby_mgr_state: BacklinkState,
 }
 impl UserManager {
-    pub fn new() -> UserManager {
+    pub fn new(db: Arc<DatabaseManager>) -> UserManager {
         UserManager {
-            users: HashMap::new(),
-            games: Vec::new(),
+            db,
             lobby_mgr_state: BacklinkState::Waiting,
         }
-    }
-
-    fn load_db_file<T>(&mut self, path: &str) -> io::Result<T>
-    where
-        T: serde::de::DeserializeOwned + Default,
-    {
-        if let Ok(file) = std::fs::File::open(path) {
-            serde_json::from_reader(file).map_err(From::from)
-        } else {
-            std::fs::File::create(path).map(|_| T::default())
-        }
-    }
-
-    fn load_db_files(&mut self) -> io::Result<()> {
-        self.users = self.load_db_file(USERS_PATH)?;
-        self.games = self.load_db_file(GAMES_PATH)?;
-        Ok(())
-    }
-
-    fn save_db(&mut self) {
-        if let Err(e) = self.save_db_internal() {
-            println!("Failed to save database: {:?}.", e);
-        }
-    }
-    fn save_db_internal(&mut self) -> io::Result<()> {
-        serde_json::to_writer(std::fs::File::create(USERS_PATH)?, &self.users)?;
-        serde_json::to_writer(std::fs::File::create(GAMES_PATH)?, &self.games)?;
-        Ok(())
-    }
-
-    fn get_user(&self, auth: UserAuth) -> Option<User> {
-        self.users
-            .values()
-            .find(|user| user.username == auth.username && user.password.matches(&auth.password))
-            .cloned()
-    }
-    fn get_user_mut(&mut self, auth: UserAuth) -> Option<&mut User> {
-        self.users
-            .values_mut()
-            .find(|user| user.username == auth.username && user.password.matches(&auth.password))
     }
 }
 
@@ -77,27 +29,12 @@ enum BacklinkState {
 
 impl Actor for UserManager {
     type Context = Context<Self>;
-
-    fn started(&mut self, ctx: &mut Self::Context) {
-        if let Err(e) = self.load_db_files() {
-            println!("Failed to load database: {:?}.", e);
-        }
-        ctx.run_interval(
-            std::time::Duration::from_secs(DB_SAVE_INTERVAL),
-            |act, _| act.save_db(),
-        );
-    }
-
-    fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
-        self.save_db();
-        Running::Stop
-    }
 }
 
 #[derive(Deserialize)]
 pub struct UserAuth {
-    username: String,
-    password: String,
+    pub username: String,
+    pub password: String,
 }
 impl UserAuth {
     pub fn new(username: String, password: String) -> UserAuth {
@@ -119,15 +56,15 @@ pub mod msg {
         fn handle(&mut self, msg: Register, _ctx: &mut Self::Context) -> Self::Result {
             if !User::check_password(&msg.0.password) {
                 Err(ApiError::PasswordInsufficient)
-            } else if self.users.values().any(|u| u.username == msg.0.username) {
+            } else if self.db.users.get_username(&msg.0.username).is_some() {
                 Err(ApiError::UsernameInUse)
             } else {
                 let mut user = User::new(msg.0.username, msg.0.password);
-                while self.users.contains_key(&user.id) {
+                while self.db.users.get_id(&user.id).is_some() {
                     user.gen_new_id();
                 }
                 // println!("new userid: {}", user.id);
-                self.users.insert(user.id, user.clone());
+                self.db.users.insert(user.clone());
                 Ok(user.id)
             }
         }
@@ -140,7 +77,9 @@ pub mod msg {
         type Result = Result<UserId, ApiError>;
 
         fn handle(&mut self, msg: Login, _ctx: &mut Self::Context) -> Self::Result {
-            self.get_user(msg.0)
+            self.db
+                .users
+                .get_auth(msg.0)
                 .map(|user| user.id)
                 .ok_or(ApiError::IncorrectCredentials)
         }
@@ -157,17 +96,18 @@ pub mod msg {
     impl Handler<StartPlaying> for UserManager {
         type Result = Result<PublicUser, SrvMsgError>;
         fn handle(&mut self, msg: StartPlaying, _ctx: &mut Self::Context) -> Self::Result {
-            if let Some(user) = self
+            if let Some(mut user) = self
+                .db
                 .users
-                .values_mut()
-                .find(|user| user.username == msg.username && user.password.matches(&msg.password))
+                .get_auth(UserAuth::new(msg.username, msg.password))
             {
                 if user.playing.is_some() {
                     return Err(SrvMsgError::AlreadyPlaying);
                 } else {
                     user.playing = Some(msg.addr);
+                    self.db.users.update(user.clone());
                 }
-                Ok(PublicUser::from(user.clone(), &self.users))
+                Ok(PublicUser::from(user.clone(), &self.db.users))
             } else {
                 Err(SrvMsgError::IncorrectCredentials)
             }
@@ -197,18 +137,21 @@ pub mod msg {
                 Game(game_msg) => match game_msg {
                     PlayedGame(game_info) => {
                         let mut found = false;
-                        if let Some(winner) = self.users.get_mut(&game_info.winner) {
+                        if let Some(mut winner) = self.db.users.get_id(&game_info.winner) {
                             winner.game_info.skill_rating += SR_PER_WIN;
+                            self.db.users.update(winner);
                             found = true;
                         }
-                        if let Some(loser) = self.users.get_mut(&game_info.loser) {
+                        if let Some(mut loser) = self.db.users.get_id(&game_info.loser) {
                             if found {
                                 loser.game_info.skill_rating -= SR_PER_WIN;
-                                self.games.push(game_info);
+                                self.db.users.update(loser);
+                                self.db.games.insert(game_info);
                             }
                         } else if found {
-                            if let Some(winner) = self.users.get_mut(&game_info.winner) {
+                            if let Some(mut winner) = self.db.users.get_id(&game_info.winner) {
                                 winner.game_info.skill_rating -= SR_PER_WIN;
+                                self.db.users.update(winner);
                             }
                         }
                     }
@@ -219,23 +162,12 @@ pub mod msg {
                 //     }
                 // }
                 StopPlaying(id) => {
-                    if let Some(user) = self.users.get_mut(&id) {
+                    if let Some(mut user) = self.db.users.get_id(&id) {
                         user.playing = None;
+                        self.db.users.update(user);
                     }
                 }
             }
-        }
-    }
-
-    pub struct GetUsers;
-    impl Message for GetUsers {
-        type Result = Option<Vec<User>>;
-    }
-
-    impl Handler<GetUsers> for UserManager {
-        type Result = Option<Vec<User>>;
-        fn handle(&mut self, _msg: GetUsers, _ctx: &mut Self::Context) -> Self::Result {
-            Some(self.users.values().cloned().collect())
         }
     }
 
@@ -247,11 +179,13 @@ pub mod msg {
     impl Handler<SearchUsers> for UserManager {
         type Result = Option<Vec<PublicUser>>;
         fn handle(&mut self, msg: SearchUsers, _ctx: &mut Self::Context) -> Self::Result {
+            let query = (&msg.0).to_lowercase();
             Some(
-                self.users
-                    .values()
-                    .filter(|user| user.username.contains(&msg.0))
-                    .map(|u| PublicUser::from(u.clone(), &self.users))
+                self.db
+                    .users
+                    .query(&query)
+                    .iter()
+                    .map(|u| PublicUser::from(u.clone(), &self.db.users))
                     .collect(),
             )
         }
@@ -268,13 +202,15 @@ pub mod msg {
             // println!("received getuser");
             match msg.0 {
                 UserIdent::Auth(auth) => self
-                    .get_user(auth)
-                    .map(|u| PublicUser::from(u, &self.users)),
-                UserIdent::Id(user_id) => self
+                    .db
                     .users
-                    .get(&user_id)
-                    .cloned()
-                    .map(|u| PublicUser::from(u, &self.users)),
+                    .get_auth(auth)
+                    .map(|u| PublicUser::from(u, &self.db.users)),
+                UserIdent::Id(user_id) => self
+                    .db
+                    .users
+                    .get_id(&user_id)
+                    .map(|u| PublicUser::from(u, &self.db.users)),
             }
         }
     }
@@ -296,7 +232,8 @@ pub mod msg {
     impl Handler<UserAction> for UserManager {
         type Result = bool;
         fn handle(&mut self, msg: UserAction, _ctx: &mut Self::Context) -> Self::Result {
-            if let Some(user) = self.get_user_mut(msg.auth) {
+            if let Some(user) = self.db.users.get_auth(msg.auth) {
+                let mut user = user;
                 match msg.action {
                     Action::FriendsAction(friends_action) => {
                         use FriendsAction::*;
@@ -304,6 +241,7 @@ pub mod msg {
                             Add(id) => {
                                 if user.id != id && !user.friends.contains(&id) {
                                     user.friends.push(id);
+                                    self.db.users.update(user);
                                     true
                                 } else {
                                     false
@@ -312,6 +250,7 @@ pub mod msg {
                             Delete(id) => {
                                 if let Some(i) = user.friends.iter().position(|f| f == &id) {
                                     user.friends.remove(i);
+                                    self.db.users.update(user);
                                     true
                                 } else {
                                     false
@@ -338,7 +277,7 @@ pub mod msg {
         fn handle(&mut self, msg: BattleReq, _ctx: &mut Self::Context) {
             if let BacklinkState::Linked(lobby_mgr) = &self.lobby_mgr_state {
                 // println!("user_mgr: got battlereq");
-                if let Some(receiver) = self.users.get(&msg.receiver) {
+                if let Some(receiver) = self.db.users.get_id(&msg.receiver) {
                     if let Some(receiver_addr) = &receiver.playing {
                         lobby_mgr.do_send(lobby_mgr::BattleReq {
                             sender: msg.sender,

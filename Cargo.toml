@@ -15,6 +15,7 @@ actix-files = "0.4"
 actix-service = "1.0"
 actix-cors = "0.5"
 tokio = "0.3"
+mongodb = {version = "1.1.1", default-features = false, features = ["sync"] }
 
 base64 = "0.13"
 async-std = "1.7"

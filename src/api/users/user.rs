@@ -1,8 +1,7 @@
-use crate::game::client_adapter::ClientAdapter;
+use crate::{database::users::UserCollection, game::client_adapter::ClientAdapter};
 use actix::Addr;
 use rand::{thread_rng, Rng};
 use serde::{de, Deserialize, Serialize, Serializer};
-use std::collections::HashMap;
 use std::fmt;
 
 const USER_ID_LEN: usize = 12;
@@ -121,6 +120,7 @@ impl User {
     }
 }
 pub use pw::*;
+
 pub mod pw {
     use serde::{de, Deserialize, Serialize, Serializer};
     use sha3::{Digest, Keccak256};
@@ -219,7 +219,7 @@ pub struct PublicUser {
     // pub playing: bool,
 }
 impl PublicUser {
-    pub fn from(user: User, users: &HashMap<UserId, User>) -> Self {
+    pub fn from(user: User, users: &UserCollection) -> Self {
         Self {
             id: user.id,
             username: user.username,
@@ -248,8 +248,8 @@ pub struct Friend {
     playing: bool,
 }
 impl Friend {
-    pub fn from(id: UserId, users: &HashMap<UserId, User>) -> Option<Self> {
-        users.get(&id).cloned().map(|user| Friend {
+    pub fn from(id: UserId, users: &UserCollection) -> Option<Self> {
+        users.get_id(&id).map(|user| Friend {
             id: user.id,
             username: user.username,
             game_info: user.game_info,

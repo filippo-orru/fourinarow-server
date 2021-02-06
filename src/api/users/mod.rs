@@ -26,11 +26,6 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .route("/{user_id}", web::get().to(get_user))
         .route("/register", web::post().to(register))
         .route("/login", web::post().to(login));
-    // .service(
-    //     web::scope("/account")
-    // .route("/register", web::post().to(register))
-    // .route("/login", web::post().to(login)),
-    // ;
 }
 
 async fn register(
@@ -67,17 +62,6 @@ async fn login(
         }
     } else {
         HR::InternalServerError().json(ApiResponse::new("Login failed. Internal Error."))
-    }
-}
-
-#[allow(dead_code)]
-async fn users(_: HttpRequest, user_mgr: web::Data<Addr<user_mgr::UserManager>>) -> HttpResponse {
-    let users_res: Result<Option<Vec<user::User>>, MailboxError> =
-        user_mgr.send(user_mgr::msg::GetUsers).await;
-    if let Ok(Some(users)) = users_res {
-        HttpResponse::Ok().json(users)
-    } else {
-        HttpResponse::InternalServerError().json(ApiResponse::new("Failed to retrieve users"))
     }
 }
 

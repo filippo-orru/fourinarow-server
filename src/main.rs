@@ -1,5 +1,8 @@
 mod api;
+mod database;
 mod game;
+
+use std::sync::Arc;
 
 use actix::Actor;
 use actix_cors::Cors;
@@ -9,6 +12,8 @@ use actix_web::http::header;
 use actix_web::{middleware, web, App, HttpResponse, HttpServer};
 
 use api::users::user_mgr::UserManager;
+use database::DatabaseManager;
+use futures::executor::block_on;
 use game::connection_mgr::ConnectionManager;
 use game::lobby_mgr::LobbyManager;
 
@@ -39,7 +44,8 @@ async fn main() {
 
 fn start_server(bind_addr: &str) -> Server {
     println!("Running on {}.", bind_addr);
-    let user_mgr_addr = UserManager::new().start();
+    let db_mgr = Arc::new(block_on(DatabaseManager::new()));
+    let user_mgr_addr = UserManager::new(db_mgr).start();
     let connection_mgr_addr = ConnectionManager::new().start();
     let lobby_mgr_addr =
         LobbyManager::new(user_mgr_addr.clone(), connection_mgr_addr.clone()).start();
@@ -66,6 +72,7 @@ fn start_server(bind_addr: &str) -> Server {
                             .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
                             .allowed_origin("*.fourinarow.ml")
                             .allowed_origin("fourinarow.ml")
+                            .allowed_origin("localhost")
                             .max_age(3600),
                     )
                     .configure(api::config),
