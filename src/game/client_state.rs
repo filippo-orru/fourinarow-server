@@ -3,9 +3,12 @@ use super::msg::*;
 use super::{client_adapter::ClientAdapter, connection_mgr::ConnectionManager};
 use super::{connection_mgr::ConnectionManagerMsg, game_info::*};
 use super::{connection_mgr::SessionToken, lobby::*};
-use crate::api::users::{
-    user::PublicUser,
-    user_mgr::{self, UserManager},
+use crate::{
+    api::users::{
+        user::PublicUser,
+        user_mgr::{self, UserManager},
+    },
+    logging::*,
 };
 
 use actix::*;
@@ -14,6 +17,7 @@ pub struct ClientState {
     id: SessionToken,
     lobby_mgr: Addr<LobbyManager>,
     user_mgr: Addr<UserManager>,
+    logger: Addr<Logger>,
     connection_mgr: Addr<ConnectionManager>,
     backlinked_state: BacklinkState,
     conn_state: ClientConnState,
@@ -30,12 +34,14 @@ impl ClientState {
         id: SessionToken,
         lobby_mgr: Addr<LobbyManager>,
         user_mgr: Addr<UserManager>,
+        logger: Addr<Logger>,
         connection_mgr: Addr<ConnectionManager>,
     ) -> ClientState {
         ClientState {
             id,
             lobby_mgr,
             user_mgr,
+            logger,
             connection_mgr,
             backlinked_state: BacklinkState::Waiting,
             conn_state: ClientConnState::Idle,
@@ -71,7 +77,9 @@ impl Handler<ClientStateMessage> for ClientState {
                 if let ClientConnState::InLobby(player, lobby_addr) = &self.conn_state {
                     lobby_addr.do_send(ClientLobbyMessageNamed {
                         sender: *player,
-                        msg: ClientLobbyMessage::PlayerLeaving,
+                        msg: ClientLobbyMessage::PlayerLeaving {
+                            reason: PlayerLeaveReason::Disconnect,
+                        },
                     });
                     self.conn_state = ClientConnState::Idle;
                 }
@@ -151,7 +159,9 @@ impl Handler<PlayerMessage> for ClientState {
                             if lobby_addr
                                 .try_send(ClientLobbyMessageNamed {
                                     sender: *player,
-                                    msg: ClientLobbyMessage::PlayerLeaving,
+                                    msg: ClientLobbyMessage::PlayerLeaving {
+                                        reason: PlayerLeaveReason::Leave,
+                                    },
                                 })
                                 .is_err()
                             {

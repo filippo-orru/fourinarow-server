@@ -1,6 +1,7 @@
 mod api;
 mod database;
 mod game;
+mod logging;
 
 use std::sync::Arc;
 
@@ -16,6 +17,7 @@ use database::DatabaseManager;
 use futures::executor::block_on;
 use game::connection_mgr::ConnectionManager;
 use game::lobby_mgr::LobbyManager;
+use logging::Logger;
 
 const DEFAULT_BIND_ADDR: &str = "127.0.0.1:40146";
 
@@ -46,9 +48,14 @@ fn start_server(bind_addr: &str) -> Server {
     println!("Running on {}.", bind_addr);
     let db_mgr = Arc::new(block_on(DatabaseManager::new()));
     let user_mgr_addr = UserManager::new(db_mgr).start();
-    let connection_mgr_addr = ConnectionManager::new().start();
-    let lobby_mgr_addr =
-        LobbyManager::new(user_mgr_addr.clone(), connection_mgr_addr.clone()).start();
+    let logger_addr = Logger::new().start();
+    let connection_mgr_addr = ConnectionManager::new(logger_addr.clone()).start();
+    let lobby_mgr_addr = LobbyManager::new(
+        user_mgr_addr.clone(),
+        connection_mgr_addr.clone(),
+        logger_addr.clone(),
+    )
+    .start();
     HttpServer::new(move || {
         App::new()
             .wrap(middleware::Logger::default())

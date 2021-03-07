@@ -9,7 +9,7 @@ use super::{
     lobby_mgr::LobbyManager,
     ClientConnection,
 };
-use crate::{api::users::user_mgr::UserManager, game::msg::ServerMessage};
+use crate::{api::users::user_mgr::UserManager, game::msg::ServerMessage, logging::Logger};
 
 pub type SessionToken = String;
 
@@ -27,15 +27,17 @@ pub struct ConnectionManager {
     connections: HashMap<SessionToken, Connection>,
     player_in_queue: bool,
     send_server_info_batched: bool,
+    logger: Addr<Logger>,
 }
 
 impl ConnectionManager {
-    pub fn new() -> Self {
+    pub fn new(logger: Addr<Logger>) -> Self {
         ConnectionManager {
             lobby_mgr_state: BacklinkState::Unlinked,
             connections: HashMap::new(),
             player_in_queue: false,
             send_server_info_batched: false,
+            logger,
         }
     }
 
@@ -201,6 +203,7 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                     session_token.clone(),
                     new_adapter_addresses.lobby_mgr,
                     new_adapter_addresses.user_mgr,
+                    self.logger.clone(),
                     ctx.address(),
                 )
                 .start();
@@ -264,6 +267,7 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                     session_token.clone(),
                     new_adapter_addresses.lobby_mgr,
                     new_adapter_addresses.user_mgr,
+                    self.logger.clone(),
                     ctx.address(),
                 )
                 .start();

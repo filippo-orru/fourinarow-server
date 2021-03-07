@@ -5,9 +5,12 @@ use super::game_info::GameId;
 use super::game_info::Player;
 use super::lobby::*;
 use super::msg::*;
-use crate::api::users::{
-    user::{PlayedGameInfo, UserId},
-    user_mgr,
+use crate::{
+    api::users::{
+        user::{PlayedGameInfo, UserId},
+        user_mgr,
+    },
+    logging::*,
 };
 
 use actix::*;
@@ -19,12 +22,14 @@ pub struct LobbyManager {
     closed_lobby_map: LobbyMap,
     user_mgr: Addr<user_mgr::UserManager>,
     connection_mgr: Addr<ConnectionManager>,
+    logger: Addr<Logger>,
 }
 
 impl LobbyManager {
     pub fn new(
         user_mgr: Addr<user_mgr::UserManager>,
         connection_mgr: Addr<ConnectionManager>,
+        logger: Addr<Logger>,
     ) -> LobbyManager {
         LobbyManager {
             open_lobby: None,
@@ -32,6 +37,7 @@ impl LobbyManager {
             closed_lobby_map: HashMap::new(),
             user_mgr,
             connection_mgr,
+            logger,
         }
     }
 
@@ -43,6 +49,7 @@ impl LobbyManager {
         user_mgr_addr: Addr<user_mgr::UserManager>,
         kind: LobbyKind,
     ) -> LobbyRequestResponse {
+        let lobby_id = LobbyId::new();
         let game_id = GameId::generate(
             &self
                 .open_lobby_map
@@ -52,25 +59,32 @@ impl LobbyManager {
                 .collect::<Vec<_>>(),
         );
         let lobby_addr = Lobby::new(
+            lobby_id.clone(),
             game_id,
             lobby_mgr_addr,
             user_mgr_addr,
+            self.logger.clone(),
             host_addr,
             maybe_host_id,
         )
         .start();
         match kind {
             LobbyKind::Public => {
-                self.open_lobby = Some(LobbyInfo::new(game_id, lobby_addr.clone(), kind));
+                self.open_lobby = Some(LobbyInfo::new(
+                    lobby_id.clone(),
+                    game_id,
+                    lobby_addr.clone(),
+                    kind,
+                ));
             }
             LobbyKind::Private => {
-                self.open_lobby_map
-                    .insert(game_id, LobbyInfo::new(game_id, lobby_addr.clone(), kind));
+                self.open_lobby_map.insert(
+                    game_id,
+                    LobbyInfo::new(lobby_id.clone(), game_id, lobby_addr.clone(), kind),
+                );
             }
         }
 
-        // println!("LobbyMgr: {} lobbies after", self.lobby_map.len());
-        // let _ = request.resp.send(Some(lobby_addr));
         LobbyRequestResponse {
             player: Player::One,
             game_id,
@@ -83,13 +97,15 @@ pub type LobbyMap = HashMap<GameId, LobbyInfo>;
 
 #[derive(Clone)]
 pub struct LobbyInfo {
+    lobby_id: LobbyId,
     game_id: GameId,
     addr: Addr<Lobby>,
     kind: LobbyKind,
 }
 impl LobbyInfo {
-    fn new(game_id: GameId, addr: Addr<Lobby>, kind: LobbyKind) -> LobbyInfo {
+    fn new(lobby_id: LobbyId, game_id: GameId, addr: Addr<Lobby>, kind: LobbyKind) -> LobbyInfo {
         LobbyInfo {
+            lobby_id,
             game_id,
             addr,
             kind,

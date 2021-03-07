@@ -102,6 +102,7 @@ pub enum GameType {
 }
 
 pub struct GameInfo {
+    // pub id: crate::logging::GameId,
     field: [[Option<Player>; FIELD_SIZE]; FIELD_SIZE],
     pub turn: Player,
     pub winner: Option<WinnerInfo>,
@@ -109,6 +110,7 @@ pub struct GameInfo {
 impl GameInfo {
     pub fn new() -> Self {
         GameInfo {
+            // id: crate::logging::GameId::new(),
             field: [[None; FIELD_SIZE]; FIELD_SIZE],
             turn: [Player::One, Player::Two][thread_rng().gen_range(0, 2)],
             winner: None,
