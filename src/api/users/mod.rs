@@ -76,14 +76,13 @@ async fn search_user(
     query: web::Query<SearchQuery>,
 ) -> HR {
     if query.0.search.len() > 25 && query.0.search.len() < 4 {
-        HR::Ok().json(Vec::<user::PublicUser>::new())
+        HR::Ok().json(Vec::<user::PublicUserOther>::new())
     } else {
-        let user_res: Result<Option<Vec<user::PublicUser>>, MailboxError> = user_mgr
+        let user_res: Result<Option<Vec<user::PublicUserOther>>, MailboxError> = user_mgr
             .send(user_mgr::msg::SearchUsers(query.search.clone()))
             .await;
         if let Ok(Some(users)) = user_res {
-            let cleaned_users = users.into_iter().map(|u| u.cleaned()).collect::<Vec<_>>();
-            HR::Ok().json(cleaned_users)
+            HR::Ok().json(users)
         } else {
             HR::InternalServerError().json(ApiResponse::new("Failed to retrieve users"))
         }
@@ -94,13 +93,11 @@ async fn get_user(
     user_mgr: web::Data<Addr<user_mgr::UserManager>>,
     path: web::Path<user::UserId>,
 ) -> HR {
-    let user_res: Result<Option<user::PublicUser>, MailboxError> = user_mgr
-        .send(user_mgr::msg::GetUser(user::UserIdent::Id(
-            path.into_inner(),
-        )))
+    let user_res: Result<Option<user::PublicUserOther>, MailboxError> = user_mgr
+        .send(user_mgr::msg::GetUserOther(path.into_inner()))
         .await;
     if let Ok(Some(user)) = user_res {
-        HR::Ok().json(user.cleaned())
+        HR::Ok().json(user)
     } else {
         HR::InternalServerError().json(ApiResponse::new("Failed to retrieve users"))
     }
@@ -111,10 +108,8 @@ async fn me(
     user_mgr: web::Data<Addr<user_mgr::UserManager>>,
     payload: web::Form<user_mgr::UserAuth>,
 ) -> HR {
-    let user_res: Result<Option<user::PublicUser>, MailboxError> = user_mgr
-        .send(user_mgr::msg::GetUser(user::UserIdent::Auth(
-            payload.into_inner(),
-        )))
+    let user_res: Result<Option<user::PublicUserMe>, MailboxError> = user_mgr
+        .send(user_mgr::msg::GetUserMe(payload.into_inner()))
         .await;
     if let Ok(maybe_user) = user_res {
         if let Some(user) = maybe_user {
@@ -140,9 +135,10 @@ async fn me_headers(req: HttpRequest, user_mgr: web::Data<Addr<user_mgr::UserMan
         if parts.len() == 2 && parts[0] == "Basic" {
             if let Ok(Ok(uname_pw)) = base64::decode(parts[1]).map(String::from_utf8) {
                 if let [username, password] = uname_pw.split(':').collect::<Vec<_>>()[0..=1] {
-                    let user_res: Result<Option<user::PublicUser>, MailboxError> = user_mgr
-                        .send(user_mgr::msg::GetUser(user::UserIdent::Auth(
-                            user_mgr::UserAuth::new(username.to_owned(), password.to_owned()),
+                    let user_res: Result<Option<user::PublicUserMe>, MailboxError> = user_mgr
+                        .send(user_mgr::msg::GetUserMe(user_mgr::UserAuth::new(
+                            username.to_owned(),
+                            password.to_owned(),
                         )))
                         .await;
                     if let Ok(maybe_user) = user_res {
@@ -211,7 +207,7 @@ mod friends {
         query: web::Query<UserIdQuery>,
     ) -> HR {
         modify(
-            FriendsAction::Add(query.id),
+            FriendsAction::Request(query.id),
             user_mgr.get_ref(),
             auth.into_inner(),
         )

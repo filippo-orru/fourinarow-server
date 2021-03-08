@@ -1,4 +1,4 @@
-use crate::{database::users::UserCollection, game::client_adapter::ClientAdapter};
+use crate::{database::DatabaseManager, game::client_adapter::ClientAdapter};
 use actix::Addr;
 use rand::{thread_rng, Rng};
 use serde::{de, Deserialize, Serialize, Serializer};
@@ -7,8 +7,9 @@ use std::fmt;
 const USER_ID_LEN: usize = 12;
 const VALID_USER_ID_CHARS: &str = "0123456789abcdef";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Eq, Hash)]
 pub struct UserId([char; USER_ID_LEN]);
+
 impl UserId {
     pub fn new() -> UserId {
         //users: &[User]
@@ -58,6 +59,21 @@ impl fmt::Display for UserId {
         fmt::Result::Ok(())
     }
 }
+impl fmt::Debug for UserId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use std::fmt::Write;
+        self.0.iter().for_each(|c| {
+            let _ = f.write_char(*c);
+        });
+
+        fmt::Result::Ok(())
+    }
+}
+impl PartialEq for UserId {
+    fn eq(&self, other: &Self) -> bool {
+        self.to_string() == other.to_string()
+    }
+}
 impl Serialize for UserId {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -81,8 +97,8 @@ const MAX_PASSWORD_LENGTH: usize = 15;
 const SPECIAL_CHARS: &str = "0123456789=!<[>]()-/{}~+%$|#';&+€";
 const INVALID_CHARS: &str = "#:\\\"";
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct User {
+#[derive(Clone)]
+pub struct BackendUser {
     // #[serde(deserialize_with = "UserId::deserialize")]
     pub id: UserId,
     pub username: String,
@@ -90,13 +106,12 @@ pub struct User {
     pub email: Option<String>,
     pub game_info: UserGameInfo,
     pub friends: Vec<UserId>,
-    #[serde(skip)]
     pub playing: Option<Addr<ClientAdapter>>,
-    // login_key: Option<String>,
+    pub friend_requests: Vec<PublicFriendRequest>,
 }
-impl User {
-    pub fn new(username: String, password: String) -> User {
-        User {
+impl BackendUser {
+    pub fn new(username: String, password: String) -> BackendUser {
+        BackendUser {
             id: UserId::new(),
             username,
             password: HashedPassword::new(password),
@@ -104,6 +119,7 @@ impl User {
             game_info: UserGameInfo::new(),
             friends: Vec::new(),
             playing: None,
+            friend_requests: Vec::new(),
             // login_key: None,
         }
     }
@@ -210,16 +226,17 @@ pub enum GameKind {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct PublicUser {
+pub struct PublicUserMe {
     pub id: UserId,
     pub username: String,
     pub email: Option<String>,
     pub game_info: UserGameInfo,
     pub friends: Vec<Friend>,
+    pub friend_requests: Vec<PublicFriendRequest>,
     // pub playing: bool,
 }
-impl PublicUser {
-    pub fn from(user: User, users: &UserCollection) -> Self {
+impl PublicUserMe {
+    pub fn from(user: BackendUser, db: &DatabaseManager) -> Self {
         Self {
             id: user.id,
             username: user.username,
@@ -228,16 +245,41 @@ impl PublicUser {
             friends: user
                 .friends
                 .into_iter()
-                .filter_map(|id| Friend::from(id, users))
+                .filter_map(|id| Friend::from(id, &db))
                 .collect(),
-            // playing: user.playing.is_some(),
+            friend_requests: db.friend_requests.get_requests_for(user.id, &db.users), // playing: user.playing.is_some(),
         }
     }
-    pub fn cleaned(mut self) -> Self {
-        self.email = None;
-        self.friends = Vec::new();
-        self
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublicUserOther {
+    pub id: UserId,
+    pub username: String,
+    pub game_info: UserGameInfo,
+    pub playing: bool,
+}
+impl PublicUserOther {
+    pub fn from(user: BackendUser) -> Self {
+        Self {
+            id: user.id,
+            username: user.username,
+            game_info: user.game_info,
+            playing: user.playing.is_some(),
+        }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublicFriendRequest {
+    pub direction: PublicFriendRequestDirection,
+    pub other: PublicUserOther,
+}
+
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+pub enum PublicFriendRequestDirection {
+    Incoming,
+    Outgoing,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -248,17 +290,14 @@ pub struct Friend {
     playing: bool,
 }
 impl Friend {
-    pub fn from(id: UserId, users: &UserCollection) -> Option<Self> {
-        users.get_id(&id).map(|user| Friend {
-            id: user.id,
-            username: user.username,
-            game_info: user.game_info,
-            playing: user.playing.is_some(),
-        })
+    pub fn from(id: UserId, db: &DatabaseManager) -> Option<Self> {
+        db.users
+            .get_id(&id, &db.friend_requests)
+            .map(|user| Friend {
+                id: user.id,
+                username: user.username,
+                game_info: user.game_info,
+                playing: user.playing.is_some(),
+            })
     }
-}
-
-pub enum UserIdent {
-    Auth(super::user_mgr::UserAuth),
-    Id(UserId),
 }

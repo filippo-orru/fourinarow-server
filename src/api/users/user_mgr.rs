@@ -43,6 +43,7 @@ impl UserAuth {
 }
 
 pub mod msg {
+
     use super::*;
     use crate::game::msg::SrvMsgError;
 
@@ -54,13 +55,23 @@ pub mod msg {
         type Result = Result<UserId, ApiError>;
 
         fn handle(&mut self, msg: Register, _ctx: &mut Self::Context) -> Self::Result {
-            if !User::check_password(&msg.0.password) {
+            if !BackendUser::check_password(&msg.0.password) {
                 Err(ApiError::PasswordInsufficient)
-            } else if self.db.users.get_username(&msg.0.username).is_some() {
+            } else if self
+                .db
+                .users
+                .get_username(&msg.0.username, &self.db.friend_requests)
+                .is_some()
+            {
                 Err(ApiError::UsernameInUse)
             } else {
-                let mut user = User::new(msg.0.username, msg.0.password);
-                while self.db.users.get_id(&user.id).is_some() {
+                let mut user = BackendUser::new(msg.0.username, msg.0.password);
+                while self
+                    .db
+                    .users
+                    .get_id(&user.id, &self.db.friend_requests)
+                    .is_some()
+                {
                     user.gen_new_id();
                 }
                 // println!("new userid: {}", user.id);
@@ -79,7 +90,7 @@ pub mod msg {
         fn handle(&mut self, msg: Login, _ctx: &mut Self::Context) -> Self::Result {
             self.db
                 .users
-                .get_auth(msg.0)
+                .get_auth(msg.0, &self.db.friend_requests)
                 .map(|user| user.id)
                 .ok_or(ApiError::IncorrectCredentials)
         }
@@ -91,23 +102,22 @@ pub mod msg {
         pub addr: Addr<ClientAdapter>,
     }
     impl Message for StartPlaying {
-        type Result = Result<PublicUser, SrvMsgError>;
+        type Result = Result<PublicUserMe, SrvMsgError>;
     }
     impl Handler<StartPlaying> for UserManager {
-        type Result = Result<PublicUser, SrvMsgError>;
+        type Result = Result<PublicUserMe, SrvMsgError>;
         fn handle(&mut self, msg: StartPlaying, _ctx: &mut Self::Context) -> Self::Result {
-            if let Some(mut user) = self
-                .db
-                .users
-                .get_auth(UserAuth::new(msg.username, msg.password))
-            {
+            if let Some(mut user) = self.db.users.get_auth(
+                UserAuth::new(msg.username, msg.password),
+                &self.db.friend_requests,
+            ) {
                 if user.playing.is_some() {
                     return Err(SrvMsgError::AlreadyPlaying);
                 } else {
                     user.playing = Some(msg.addr);
                     self.db.users.update(user.clone());
                 }
-                Ok(PublicUser::from(user.clone(), &self.db.users))
+                Ok(PublicUserMe::from(user.clone(), &self.db))
             } else {
                 Err(SrvMsgError::IncorrectCredentials)
             }
@@ -137,19 +147,31 @@ pub mod msg {
                 Game(game_msg) => match game_msg {
                     PlayedGame(game_info) => {
                         let mut found = false;
-                        if let Some(mut winner) = self.db.users.get_id(&game_info.winner) {
+                        if let Some(mut winner) = self
+                            .db
+                            .users
+                            .get_id(&game_info.winner, &self.db.friend_requests)
+                        {
                             winner.game_info.skill_rating += SR_PER_WIN;
                             self.db.users.update(winner);
                             found = true;
                         }
-                        if let Some(mut loser) = self.db.users.get_id(&game_info.loser) {
+                        if let Some(mut loser) = self
+                            .db
+                            .users
+                            .get_id(&game_info.loser, &self.db.friend_requests)
+                        {
                             if found {
                                 loser.game_info.skill_rating -= SR_PER_WIN;
                                 self.db.users.update(loser);
                                 self.db.games.insert(game_info);
                             }
                         } else if found {
-                            if let Some(mut winner) = self.db.users.get_id(&game_info.winner) {
+                            if let Some(mut winner) = self
+                                .db
+                                .users
+                                .get_id(&game_info.winner, &self.db.friend_requests)
+                            {
                                 winner.game_info.skill_rating -= SR_PER_WIN;
                                 self.db.users.update(winner);
                             }
@@ -162,7 +184,7 @@ pub mod msg {
                 //     }
                 // }
                 StopPlaying(id) => {
-                    if let Some(mut user) = self.db.users.get_id(&id) {
+                    if let Some(mut user) = self.db.users.get_id(&id, &self.db.friend_requests) {
                         user.playing = None;
                         self.db.users.update(user);
                     }
@@ -173,45 +195,51 @@ pub mod msg {
 
     pub struct SearchUsers(pub String);
     impl Message for SearchUsers {
-        type Result = Option<Vec<PublicUser>>;
+        type Result = Option<Vec<PublicUserOther>>;
     }
 
     impl Handler<SearchUsers> for UserManager {
-        type Result = Option<Vec<PublicUser>>;
+        type Result = Option<Vec<PublicUserOther>>;
         fn handle(&mut self, msg: SearchUsers, _ctx: &mut Self::Context) -> Self::Result {
             let query = (&msg.0).to_lowercase();
             Some(
                 self.db
                     .users
-                    .query(&query)
+                    .query(&query, &self.db.friend_requests)
                     .iter()
-                    .map(|u| PublicUser::from(u.clone(), &self.db.users))
+                    .map(|user| PublicUserOther::from(user.clone()))
                     .collect(),
             )
         }
     }
 
-    pub struct GetUser(pub UserIdent);
-    impl Message for GetUser {
-        type Result = Option<PublicUser>;
+    pub struct GetUserMe(pub UserAuth);
+    impl Message for GetUserMe {
+        type Result = Option<PublicUserMe>;
     }
 
-    impl Handler<GetUser> for UserManager {
-        type Result = Option<PublicUser>;
-        fn handle(&mut self, msg: GetUser, _ctx: &mut Self::Context) -> Self::Result {
-            // println!("received getuser");
-            match msg.0 {
-                UserIdent::Auth(auth) => self
-                    .db
-                    .users
-                    .get_auth(auth)
-                    .map(|u| PublicUser::from(u, &self.db.users)),
-                UserIdent::Id(user_id) => self
-                    .db
-                    .users
-                    .get_id(&user_id)
-                    .map(|u| PublicUser::from(u, &self.db.users)),
-            }
+    impl Handler<GetUserMe> for UserManager {
+        type Result = Option<PublicUserMe>;
+        fn handle(&mut self, msg: GetUserMe, _ctx: &mut Self::Context) -> Self::Result {
+            self.db
+                .users
+                .get_auth(msg.0, &self.db.friend_requests)
+                .map(|user| PublicUserMe::from(user, &self.db))
+        }
+    }
+
+    pub struct GetUserOther(pub UserId);
+    impl Message for GetUserOther {
+        type Result = Option<PublicUserOther>;
+    }
+
+    impl Handler<GetUserOther> for UserManager {
+        type Result = Option<PublicUserOther>;
+        fn handle(&mut self, msg: GetUserOther, _ctx: &mut Self::Context) -> Self::Result {
+            self.db
+                .users
+                .get_id(&msg.0, &self.db.friend_requests)
+                .map(|user| PublicUserOther::from(user))
         }
     }
 
@@ -223,8 +251,8 @@ pub mod msg {
         FriendsAction(FriendsAction),
     }
     pub enum FriendsAction {
-        Add(UserId),
-        Delete(UserId),
+        Request(UserId),
+        Delete(UserId), // will delete either a friend or an outgoing or incoming friend request
     }
     impl Message for UserAction {
         type Result = bool;
@@ -232,26 +260,50 @@ pub mod msg {
     impl Handler<UserAction> for UserManager {
         type Result = bool;
         fn handle(&mut self, msg: UserAction, _ctx: &mut Self::Context) -> Self::Result {
-            if let Some(user) = self.db.users.get_auth(msg.auth) {
-                let mut user = user;
+            if let Some(user_me) = self.db.users.get_auth(msg.auth, &self.db.friend_requests) {
                 match msg.action {
                     Action::FriendsAction(friends_action) => {
                         use FriendsAction::*;
                         match friends_action {
-                            Add(id) => {
-                                if user.id != id && !user.friends.contains(&id) {
-                                    user.friends.push(id);
-                                    self.db.users.update(user);
-                                    true
+                            Request(other_id) => {
+                                if user_me.id != other_id && !user_me.friends.contains(&other_id) {
+                                    let friend_requests = self
+                                        .db
+                                        .friend_requests
+                                        .get_requests_for(user_me.id, &self.db.users);
+                                    if friend_requests.iter().any(|req| {
+                                        req.direction == PublicFriendRequestDirection::Incoming
+                                            && req.other.id == other_id
+                                    }) {
+                                        // User has incoming friend request from other user -> accept request
+                                        if self.db.users.add_friend(user_me.id, other_id) {
+                                            self.db.friend_requests.remove(user_me.id, other_id)
+                                        } else {
+                                            // db fail
+                                            false
+                                        }
+                                    } else if friend_requests.iter().any(|req| {
+                                        req.direction == PublicFriendRequestDirection::Outgoing
+                                            && req.other.id == other_id
+                                    }) {
+                                        // User has already sent a request to this user.
+                                        false
+                                    } else {
+                                        self.db.friend_requests.insert(user_me.id, other_id)
+                                    }
                                 } else {
                                     false
                                 }
                             }
-                            Delete(id) => {
-                                if let Some(i) = user.friends.iter().position(|f| f == &id) {
-                                    user.friends.remove(i);
-                                    self.db.users.update(user);
-                                    true
+                            Delete(other_id) => {
+                                if user_me.friends.iter().any(|f| *f == other_id) {
+                                    self.db.users.remove_friend(user_me.id, other_id)
+                                } else if user_me
+                                    .friend_requests
+                                    .iter()
+                                    .any(|fr| fr.other.id == other_id)
+                                {
+                                    self.db.friend_requests.remove(user_me.id, other_id.clone())
                                 } else {
                                     false
                                 }
@@ -277,7 +329,11 @@ pub mod msg {
         fn handle(&mut self, msg: BattleReq, _ctx: &mut Self::Context) {
             if let BacklinkState::Linked(lobby_mgr) = &self.lobby_mgr_state {
                 // println!("user_mgr: got battlereq");
-                if let Some(receiver) = self.db.users.get_id(&msg.receiver) {
+                if let Some(receiver) = self
+                    .db
+                    .users
+                    .get_id(&msg.receiver, &self.db.friend_requests)
+                {
                     if let Some(receiver_addr) = &receiver.playing {
                         lobby_mgr.do_send(lobby_mgr::BattleReq {
                             sender: msg.sender,

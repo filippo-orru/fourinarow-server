@@ -15,15 +15,16 @@ actix-files = "0.4"
 actix-service = "1.0"
 actix-cors = "0.5"
 tokio = "0.3"
-mongodb = {version = "1.1.1", default-features = false, features = ["sync"] }
-
-base64 = "0.13"
 async-std = "1.7"
+futures = "0.3"
+
+mongodb = {version = "1.1.1", default-features = false, features = ["sync"] }
+base64 = "0.13"
 serde = "*"
 serde_json = "*"
 csv = "1.1"
 rustls = "0.19"
 env_logger = "0.8"
 rand = "0.7"
-futures = "0.3"
 sha3 = "0.9"
+dashmap = "4.0.2"

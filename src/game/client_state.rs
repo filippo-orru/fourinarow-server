@@ -5,7 +5,7 @@ use super::{connection_mgr::ConnectionManagerMsg, game_info::*};
 use super::{connection_mgr::SessionToken, lobby::*};
 use crate::{
     api::users::{
-        user::PublicUser,
+        user::PublicUserMe,
         user_mgr::{self, UserManager},
     },
     logging::*,
@@ -21,7 +21,7 @@ pub struct ClientState {
     connection_mgr: Addr<ConnectionManager>,
     backlinked_state: BacklinkState,
     conn_state: ClientConnState,
-    maybe_user_info: Option<PublicUser>,
+    maybe_user_info: Option<PublicUserMe>,
 }
 
 pub enum ClientConnState {
