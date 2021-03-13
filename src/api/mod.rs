@@ -43,6 +43,7 @@ impl ApiResponse<()> {
                     }
                     ApiError::AlreadyPlaying => ": user is already playing",
                     ApiError::IncorrectCredentials => ": the credentials are incorrect",
+                    ApiError::InternalServerError => ": internal server error",
                     _ => "",
                 },
         )
@@ -68,4 +69,5 @@ pub enum ApiError {
     InvalidUsername,
     IncorrectCredentials,
     AlreadyPlaying,
+    InternalServerError,
 }

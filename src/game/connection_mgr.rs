@@ -11,7 +11,7 @@ use super::{
 };
 use crate::{api::users::user_mgr::UserManager, game::msg::ServerMessage, logging::Logger};
 
-pub type SessionToken = String;
+pub type WSSessionToken = String;
 
 const SEND_SERVER_INFO_INTERVAL_SECONDS: u64 = 2;
 
@@ -24,7 +24,7 @@ enum BacklinkState {
 
 pub struct ConnectionManager {
     lobby_mgr_state: BacklinkState,
-    connections: HashMap<SessionToken, Connection>,
+    connections: HashMap<WSSessionToken, Connection>,
     player_in_queue: bool,
     send_server_info_batched: bool,
     logger: Addr<Logger>,
@@ -94,7 +94,7 @@ impl ConnectionManager {
         ));
     }
 
-    fn generate_session_token() -> SessionToken {
+    fn generate_session_token() -> WSSessionToken {
         thread_rng().sample_iter(&Alphanumeric).take(32).collect()
     }
 }
@@ -115,12 +115,12 @@ struct Connection {
 pub enum ConnectionManagerMsg {
     Disconnect {
         address: Addr<ClientConnection>,
-        session_token: SessionToken,
+        session_token: WSSessionToken,
         is_legacy: bool,
     },
     Update(bool), // (player_in_queue): sent by lobbyManager when clients should be notified
-    ChatMessage(SessionToken, String), // global chat message (sender_addr, msg)
-    ChatRead(SessionToken),
+    ChatMessage(WSSessionToken, String), // global chat message (sender_addr, msg)
+    ChatRead(WSSessionToken),
     Backlink(Addr<LobbyManager>), // sent by lobbyManager when it starts to form bidirectional link
     RequestAdapterNew(NewAdapterAdresses), // sent when client first connects
     RequestAdapterExisting(NewAdapterAdresses, String), // sent when client reconnects

@@ -22,13 +22,15 @@ impl Handler<GameLogEvent> for Logger {
     type Result = ();
 
     fn handle(&mut self, msg: GameLogEvent, _: &mut Self::Context) -> Self::Result {
-        todo!()
+        //todo!()
+        ()
     }
 }
 impl Handler<LobbyLogEvent> for Logger {
     type Result = ();
 
     fn handle(&mut self, msg: LobbyLogEvent, _: &mut Self::Context) -> Self::Result {
-        todo!()
+        //todo!()
+        ()
     }
 }

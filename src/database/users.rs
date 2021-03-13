@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     api::users::{
+        session_token::SessionToken,
         user::{BackendUser, HashedPassword, PublicUserOther, UserGameInfo, UserId},
         user_mgr::UserAuth,
     },
@@ -29,7 +30,7 @@ impl UserCollection {
         }
     }
 
-    pub fn get_auth(
+    fn get_auth(
         &self,
         auth: UserAuth,
         friend_requests: &FriendRequestCollection,
@@ -42,17 +43,64 @@ impl UserCollection {
         None
     }
 
+    pub fn get_session_token(
+        &self,
+        session_token: SessionToken,
+        friend_requests: &FriendRequestCollection,
+    ) -> Option<BackendUser> {
+        self.collection
+            .find_one(doc! {"session_tokens": session_token.to_string() }, None)
+            .ok()
+            .flatten()
+            .and_then(|doc| {
+                super::deserialize::<DbUser>(doc.into())
+                    .map(|user| user.to_backend_user(&self, friend_requests))
+            })
+    }
+
+    pub fn create_session_token(
+        &self,
+        auth: UserAuth,
+        friend_requests: &FriendRequestCollection,
+    ) -> Option<SessionToken> {
+        if let Some(user) = self.get_auth(auth, friend_requests) {
+            let session_token = SessionToken::new();
+            return self
+                .collection
+                .update_one(
+                    doc! {"username": user.username},
+                    doc! { "$push": { "session_tokens": session_token.to_string() } },
+                    None,
+                )
+                .map(|_| session_token)
+                .ok();
+        }
+        None
+    }
+
+    pub fn remove_session_token(&self, session_token: SessionToken) -> Result<(), ()> {
+        let session_token_str = session_token.to_string();
+        self.collection
+            .update_one(
+                doc! { "session_tokens": &session_token_str },
+                doc! { "$pull": { "session_tokens": session_token_str } },
+                None,
+            )
+            .map(|_| ())
+            .map_err(|_| ())
+    }
+
     pub fn get_username(
         &self,
         username: &str,
         friend_requests: &FriendRequestCollection,
     ) -> Option<BackendUser> {
         self.collection
-            .find_one(doc! {"username": username}, None)
+            .find_one(doc! { "username": username }, None)
             .ok()
             .flatten()
             .and_then(|doc| {
-                super::deserialize::<DbUser>(doc)
+                super::deserialize::<DbUser>(doc.into())
                     .map(|user| user.to_backend_user(&self, friend_requests))
             })
     }
@@ -86,16 +134,19 @@ impl UserCollection {
         &self,
         query: &str,
         friend_requests: &FriendRequestCollection,
-    ) -> Vec<BackendUser> {
+    ) -> Vec<PublicUserOther> {
         let query = query.to_lowercase();
 
-        self.collection
-            .find(doc! {"username": { "$contains": query} }, None)
+        let x = self
+            .collection
+            .find(doc! {"username": {"$regex": &query}}, None)
             .ok()
             .map(|cursor| deserialize_vec::<DbUser>(cursor))
-            .unwrap_or(Vec::new())
-            .into_iter()
-            .map(|user| user.to_backend_user(&self, friend_requests))
+            .unwrap_or(Vec::new());
+
+        // println!("query: {} -> {:?}", query, x);
+        x.into_iter()
+            .map(|user| user.to_public_user_other(&self))
             .collect()
     }
 
@@ -112,12 +163,14 @@ impl UserCollection {
         if let Some(playing_addr) = &user.playing {
             self.playing_users_cache
                 .insert(user.id.clone(), playing_addr.clone());
+        } else {
+            self.playing_users_cache.remove(&user.id);
         }
 
         self.collection
             .update_one(
                 doc! { "_id": user.id.to_string()},
-                bson::to_document(&DbUser::from_backend_user(user)).unwrap(),
+                doc! { "$set": bson::to_document(&DbUser::from_backend_user(user.clone())).unwrap() },
                 None,
             )
             .is_ok()
@@ -162,15 +215,23 @@ impl UserCollection {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct DbUser {
     #[serde(rename = "_id")]
     pub id: UserId,
     pub username: String,
     pub password: HashedPassword,
+
+    #[serde(default)]
     pub email: Option<String>,
+
     pub game_info: UserGameInfo,
+
+    #[serde(default)]
     pub friends: Vec<UserId>,
+
+    #[serde(skip)]
+    pub session_tokens: Vec<SessionToken>,
 }
 
 impl DbUser {
@@ -182,6 +243,7 @@ impl DbUser {
             email: user.email,
             game_info: user.game_info,
             friends: user.friends,
+            session_tokens: vec![],
         }
     }
     fn to_backend_user(
@@ -197,7 +259,7 @@ impl DbUser {
             game_info: self.game_info,
             friends: self.friends,
             playing: users.playing_users_cache.get(&self.id).map(|p| p.clone()),
-            friend_requests: friend_requests.get_requests_for(self.id, users),
+            friend_requests: friend_requests.get_requests_for(self.id),
         }
     }
 

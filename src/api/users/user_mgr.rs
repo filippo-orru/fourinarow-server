@@ -1,4 +1,5 @@
 use super::{super::ApiError, user::*};
+use crate::game::client_adapter::ClientAdapterMsg;
 use crate::game::lobby_mgr::{self, LobbyManager};
 use crate::game::msg::*;
 use crate::{database::DatabaseManager, game::client_adapter::ClientAdapter};
@@ -31,41 +32,37 @@ impl Actor for UserManager {
     type Context = Context<Self>;
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct UserAuth {
     pub username: String,
     pub password: String,
-}
-impl UserAuth {
-    pub fn new(username: String, password: String) -> UserAuth {
-        UserAuth { username, password }
-    }
 }
 
 pub mod msg {
 
     use super::*;
-    use crate::game::msg::SrvMsgError;
+    use crate::{api::users::session_token::SessionToken, game::msg::SrvMsgError};
 
     pub struct Register(pub UserAuth);
     impl Message for Register {
-        type Result = Result<UserId, ApiError>;
+        type Result = Result<SessionToken, ApiError>;
     }
     impl Handler<Register> for UserManager {
-        type Result = Result<UserId, ApiError>;
+        type Result = Result<SessionToken, ApiError>;
 
         fn handle(&mut self, msg: Register, _ctx: &mut Self::Context) -> Self::Result {
-            if !BackendUser::check_password(&msg.0.password) {
+            let auth = msg.0;
+            if !BackendUser::check_password(&auth.password) {
                 Err(ApiError::PasswordInsufficient)
             } else if self
                 .db
                 .users
-                .get_username(&msg.0.username, &self.db.friend_requests)
+                .get_username(&auth.username, &self.db.friend_requests)
                 .is_some()
             {
                 Err(ApiError::UsernameInUse)
             } else {
-                let mut user = BackendUser::new(msg.0.username, msg.0.password);
+                let mut user = BackendUser::new(auth.username.clone(), auth.password.clone());
                 while self
                     .db
                     .users
@@ -74,31 +71,46 @@ pub mod msg {
                 {
                     user.gen_new_id();
                 }
-                // println!("new userid: {}", user.id);
                 self.db.users.insert(user.clone());
-                Ok(user.id)
+                self.db
+                    .users
+                    .create_session_token(auth, &self.db.friend_requests)
+                    .ok_or(ApiError::IncorrectCredentials)
             }
         }
     }
     pub struct Login(pub UserAuth);
     impl Message for Login {
-        type Result = Result<UserId, ApiError>;
+        type Result = Result<SessionToken, ApiError>;
     }
     impl Handler<Login> for UserManager {
-        type Result = Result<UserId, ApiError>;
+        type Result = Result<SessionToken, ApiError>;
 
         fn handle(&mut self, msg: Login, _ctx: &mut Self::Context) -> Self::Result {
             self.db
                 .users
-                .get_auth(msg.0, &self.db.friend_requests)
-                .map(|user| user.id)
+                .create_session_token(msg.0, &self.db.friend_requests)
                 .ok_or(ApiError::IncorrectCredentials)
         }
     }
 
+    pub struct Logout(pub SessionToken);
+    impl Message for Logout {
+        type Result = Result<(), ApiError>;
+    }
+    impl Handler<Logout> for UserManager {
+        type Result = Result<(), ApiError>;
+
+        fn handle(&mut self, msg: Logout, _ctx: &mut Self::Context) -> Self::Result {
+            self.db
+                .users
+                .remove_session_token(msg.0)
+                .map_err(|_| ApiError::InternalServerError)
+        }
+    }
+
     pub struct StartPlaying {
-        pub username: String,
-        pub password: String,
+        pub session_token: SessionToken,
         pub addr: Addr<ClientAdapter>,
     }
     impl Message for StartPlaying {
@@ -107,17 +119,21 @@ pub mod msg {
     impl Handler<StartPlaying> for UserManager {
         type Result = Result<PublicUserMe, SrvMsgError>;
         fn handle(&mut self, msg: StartPlaying, _ctx: &mut Self::Context) -> Self::Result {
-            if let Some(mut user) = self.db.users.get_auth(
-                UserAuth::new(msg.username, msg.password),
-                &self.db.friend_requests,
-            ) {
-                if user.playing.is_some() {
-                    return Err(SrvMsgError::AlreadyPlaying);
+            if let Some(user) = self
+                .db
+                .users
+                .get_session_token(msg.session_token, &self.db.friend_requests)
+            {
+                let mut user = user;
+                if let Some(client_adapter) = user.playing {
+                    client_adapter.do_send(ClientAdapterMsg::Close);
+                    user.playing = Some(msg.addr);
+                    self.db.users.update(user.clone());
                 } else {
                     user.playing = Some(msg.addr);
                     self.db.users.update(user.clone());
                 }
-                Ok(PublicUserMe::from(user.clone(), &self.db))
+                Ok(PublicUserMe::from(user, &self.db))
             } else {
                 Err(SrvMsgError::IncorrectCredentials)
             }
@@ -202,18 +218,11 @@ pub mod msg {
         type Result = Option<Vec<PublicUserOther>>;
         fn handle(&mut self, msg: SearchUsers, _ctx: &mut Self::Context) -> Self::Result {
             let query = (&msg.0).to_lowercase();
-            Some(
-                self.db
-                    .users
-                    .query(&query, &self.db.friend_requests)
-                    .iter()
-                    .map(|user| PublicUserOther::from(user.clone()))
-                    .collect(),
-            )
+            Some(self.db.users.query(&query, &self.db.friend_requests))
         }
     }
 
-    pub struct GetUserMe(pub UserAuth);
+    pub struct GetUserMe(pub SessionToken);
     impl Message for GetUserMe {
         type Result = Option<PublicUserMe>;
     }
@@ -221,9 +230,11 @@ pub mod msg {
     impl Handler<GetUserMe> for UserManager {
         type Result = Option<PublicUserMe>;
         fn handle(&mut self, msg: GetUserMe, _ctx: &mut Self::Context) -> Self::Result {
+            // Some(
+            //)  || panic!("GetUserMe: could not get by sessionT"),
             self.db
                 .users
-                .get_auth(msg.0, &self.db.friend_requests)
+                .get_session_token(msg.0, &self.db.friend_requests)
                 .map(|user| PublicUserMe::from(user, &self.db))
         }
     }
@@ -245,7 +256,7 @@ pub mod msg {
 
     pub struct UserAction {
         pub action: Action,
-        pub auth: UserAuth,
+        pub session_token: SessionToken,
     }
     pub enum Action {
         FriendsAction(FriendsAction),
@@ -260,20 +271,22 @@ pub mod msg {
     impl Handler<UserAction> for UserManager {
         type Result = bool;
         fn handle(&mut self, msg: UserAction, _ctx: &mut Self::Context) -> Self::Result {
-            if let Some(user_me) = self.db.users.get_auth(msg.auth, &self.db.friend_requests) {
+            if let Some(user_me) = self
+                .db
+                .users
+                .get_session_token(msg.session_token, &self.db.friend_requests)
+            {
                 match msg.action {
                     Action::FriendsAction(friends_action) => {
                         use FriendsAction::*;
                         match friends_action {
                             Request(other_id) => {
                                 if user_me.id != other_id && !user_me.friends.contains(&other_id) {
-                                    let friend_requests = self
-                                        .db
-                                        .friend_requests
-                                        .get_requests_for(user_me.id, &self.db.users);
+                                    let friend_requests =
+                                        self.db.friend_requests.get_requests_for(user_me.id);
                                     if friend_requests.iter().any(|req| {
-                                        req.direction == PublicFriendRequestDirection::Incoming
-                                            && req.other.id == other_id
+                                        req.direction == BackendFriendRequestDirection::Incoming
+                                            && req.other_id == other_id
                                     }) {
                                         // User has incoming friend request from other user -> accept request
                                         if self.db.users.add_friend(user_me.id, other_id) {
@@ -283,8 +296,8 @@ pub mod msg {
                                             false
                                         }
                                     } else if friend_requests.iter().any(|req| {
-                                        req.direction == PublicFriendRequestDirection::Outgoing
-                                            && req.other.id == other_id
+                                        req.direction == BackendFriendRequestDirection::Outgoing
+                                            && req.other_id == other_id
                                     }) {
                                         // User has already sent a request to this user.
                                         false
@@ -301,7 +314,7 @@ pub mod msg {
                                 } else if user_me
                                     .friend_requests
                                     .iter()
-                                    .any(|fr| fr.other.id == other_id)
+                                    .any(|fr| fr.other_id == other_id)
                                 {
                                     self.db.friend_requests.remove(user_me.id, other_id.clone())
                                 } else {

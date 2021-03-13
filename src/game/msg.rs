@@ -1,9 +1,9 @@
 use super::lobby_mgr::LobbyKind;
 use super::{
-    connection_mgr::SessionToken,
+    connection_mgr::WSSessionToken,
     game_info::{GameId, GAME_ID_LEN},
 };
-use crate::api::users::user::UserId;
+use crate::api::users::{session_token::SessionToken, user::UserId};
 use actix::prelude::*;
 
 #[derive(Debug, Clone)]
@@ -99,7 +99,7 @@ impl Into<ReliablePacketOut> for ReliabilityError {
 
 pub struct HelloIn {
     pub protocol_version: usize,
-    pub maybe_session_token: Option<SessionToken>,
+    pub maybe_session_token: Option<WSSessionToken>,
 }
 
 impl HelloIn {
@@ -132,8 +132,8 @@ impl HelloIn {
 }
 
 pub enum HelloOut {
-    Ok(SessionToken, bool), // Hello sessionToken and session_token.is_new
-    OutDated,               // Sent when the client's version is too old
+    Ok(WSSessionToken, bool), // Hello sessionToken and session_token.is_new
+    OutDated,                 // Sent when the client's version is too old
 }
 impl HelloOut {
     pub fn serialize(self) -> String {
@@ -280,7 +280,8 @@ pub enum PlayerMessage {
     Ping,
     LobbyRequest(LobbyKind),
     LobbyJoin(GameId),
-    Login(String, String),
+    Login(SessionToken),
+    Logout,
     BattleReq(UserId),
     ChatMessage(String),
     ChatRead,
@@ -315,10 +316,12 @@ impl PlayerMessage {
         } else if s == "PLAY_AGAIN" {
             return Some(PlayAgainRequest);
         } else if s.starts_with("LOGIN:") {
-            let split: Vec<&str> = orig.split(':').collect();
-            if split.len() == 3 {
-                return Some(Login(split[1].to_owned(), split[2].to_owned()));
+            let split: Vec<&str> = orig.split(":").collect();
+            if split.len() == 2 {
+                return Some(Login(SessionToken::parse(split[1])));
             }
+        } else if s == "LOGOUT" {
+            return Some(Logout);
         } else if s.starts_with("BATTLE_REQ") {
             let split: Vec<&str> = orig.split(':').collect();
             if split.len() == 2 {

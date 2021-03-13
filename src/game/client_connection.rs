@@ -1,6 +1,6 @@
 use super::{
     client_adapter::{ClientAdapter, ClientMsgString, MIN_VERSION},
-    connection_mgr::{ConnectionManager, NewAdapterAdresses, SessionToken},
+    connection_mgr::{ConnectionManager, NewAdapterAdresses, WSSessionToken},
     msg::{HelloOut, PlayerMessage},
 };
 use super::{connection_mgr::ConnectionManagerMsg, lobby_mgr::LobbyManager};
@@ -24,8 +24,8 @@ pub struct ClientConnection {
 }
 
 enum ClientAdapterConnectionState {
-    Connected(SessionToken, Addr<ClientAdapter>),
-    ConnectedLegacy(SessionToken, Addr<ClientAdapter>), // Old clients bypass the new reliability layer & adapter and sent straight to state
+    Connected(WSSessionToken, Addr<ClientAdapter>),
+    ConnectedLegacy(WSSessionToken, Addr<ClientAdapter>), // Old clients bypass the new reliability layer & adapter and sent straight to state
     Pending,
     NotConnected,
 }
@@ -77,7 +77,7 @@ impl ClientConnection {
             ""
         };
         if str_msg.to_lowercase().contains("login") {
-            println!(">> LOGIN:***:***");
+            println!(">> LOGIN:***");
         } else {
             println!("{}>> {:?}", id, str_msg);
         }
@@ -197,7 +197,7 @@ impl Handler<ClientMsgString> for ClientConnection {
 }
 
 pub struct ClientConnnectionMsg {
-    pub session_token: SessionToken,
+    pub session_token: WSSessionToken,
     pub client_adapter: Addr<ClientAdapter>,
     pub connection_type: ConnectionType,
 }

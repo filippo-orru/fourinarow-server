@@ -6,7 +6,7 @@ use mongodb::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::api::users::user::{PublicFriendRequest, PublicFriendRequestDirection, UserId};
+use crate::api::users::user::{BackendFriendRequest, BackendFriendRequestDirection, UserId};
 
 use super::{deserialize_vec, users::UserCollection};
 
@@ -38,11 +38,7 @@ impl FriendRequestCollection {
         FriendRequestCollection { collection }
     }
 
-    pub fn get_requests_for(
-        &self,
-        user_id: UserId,
-        users: &UserCollection,
-    ) -> Vec<PublicFriendRequest> {
+    pub fn get_requests_for(&self, user_id: UserId) -> Vec<BackendFriendRequest> {
         self.collection
             .find(
                 doc! {"$or": [{"from_id": user_id.to_string()}, {"to_id": user_id.to_string()}]},
@@ -53,24 +49,20 @@ impl FriendRequestCollection {
             .map(|db_friend_requests| {
                 db_friend_requests
                     .into_iter()
-                    .filter_map(|friend_request| {
+                    .map(|friend_request| {
                         if friend_request.from_id == user_id {
-                            users.get_id_public(&friend_request.to_id).map(|u| {
-                                PublicFriendRequest {
-                                    direction: PublicFriendRequestDirection::Outgoing,
-                                    other: u,
-                                }
-                            })
+                            BackendFriendRequest {
+                                direction: BackendFriendRequestDirection::Outgoing,
+                                other_id: friend_request.to_id,
+                            }
                         } else {
-                            users.get_id_public(&friend_request.from_id).map(|u| {
-                                PublicFriendRequest {
-                                    direction: PublicFriendRequestDirection::Incoming,
-                                    other: u,
-                                }
-                            })
+                            BackendFriendRequest {
+                                direction: BackendFriendRequestDirection::Incoming,
+                                other_id: friend_request.from_id,
+                            }
                         }
                     })
-                    .collect::<Vec<PublicFriendRequest>>()
+                    .collect::<Vec<BackendFriendRequest>>()
             })
             .unwrap_or(Vec::new())
     }

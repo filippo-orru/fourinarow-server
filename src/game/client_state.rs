@@ -2,7 +2,7 @@ use super::lobby_mgr::{self, *};
 use super::msg::*;
 use super::{client_adapter::ClientAdapter, connection_mgr::ConnectionManager};
 use super::{connection_mgr::ConnectionManagerMsg, game_info::*};
-use super::{connection_mgr::SessionToken, lobby::*};
+use super::{connection_mgr::WSSessionToken, lobby::*};
 use crate::{
     api::users::{
         user::PublicUserMe,
@@ -14,7 +14,7 @@ use crate::{
 use actix::*;
 
 pub struct ClientState {
-    id: SessionToken,
+    id: WSSessionToken,
     lobby_mgr: Addr<LobbyManager>,
     user_mgr: Addr<UserManager>,
     logger: Addr<Logger>,
@@ -31,7 +31,7 @@ pub enum ClientConnState {
 
 impl ClientState {
     pub fn new(
-        id: SessionToken,
+        id: WSSessionToken,
         lobby_mgr: Addr<LobbyManager>,
         user_mgr: Addr<UserManager>,
         logger: Addr<Logger>,
@@ -238,7 +238,7 @@ impl Handler<PlayerMessage> for ClientState {
                         err
                     }
                 }
-                Login(username, password) => {
+                Login(session_token) => {
                     if let ClientConnState::InLobby(_, _) = self.conn_state {
                         client_conn_addr
                             .do_send(ServerMessage::Error(Some(SrvMsgError::AlreadyInLobby)));
@@ -251,8 +251,7 @@ impl Handler<PlayerMessage> for ClientState {
                     let client_conn_addr = client_conn_addr.clone();
                     self.user_mgr
                         .send(user_mgr::msg::StartPlaying {
-                            username,
-                            password,
+                            session_token,
                             addr: client_conn_addr.clone(),
                         })
                         .into_actor(self)
@@ -276,6 +275,14 @@ impl Handler<PlayerMessage> for ClientState {
                             fut::ready(())
                         })
                         .wait(ctx);
+                    ok
+                }
+
+                Logout => {
+                    if let Some(user_info) = self.maybe_user_info.clone() {
+                        self.user_mgr
+                            .do_send(user_mgr::msg::IntUserMgrMsg::StopPlaying(user_info.id));
+                    }
                     ok
                 }
 

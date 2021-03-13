@@ -1,5 +1,8 @@
+pub mod session_token;
 pub mod user;
 pub mod user_mgr;
+
+use self::session_token::SessionToken;
 
 use super::ApiResponse;
 use actix::{Addr, MailboxError};
@@ -12,33 +15,28 @@ pub fn config(cfg: &mut web::ServiceConfig) {
         .route("", web::post().to(register))
         .service(
             web::scope("/me")
-                .route(
-                    "",
-                    web::get()
-                        .guard(guard::fn_guard(|head| {
-                            head.headers().contains_key("Authorization")
-                        }))
-                        .to(me_headers),
-                )
                 .route("", web::get().to(me))
                 .service(web::scope("/friends").configure(friends::config)),
         )
-        .route("/{user_id}", web::get().to(get_user))
         .route("/register", web::post().to(register))
-        .route("/login", web::post().to(login));
+        .route("/login", web::post().to(login))
+        .route("/logout", web::post().to(logout))
+        .route("/{user_id}", web::get().to(get_user));
 }
 
 async fn register(
-    _req: HttpRequest,
     user_mgr: web::Data<Addr<user_mgr::UserManager>>,
     payload: web::Form<user_mgr::UserAuth>,
 ) -> HttpResponse {
-    if let Ok(reg_res) = user_mgr
+    if let Ok(session_token_res) = user_mgr
         .send(user_mgr::msg::Register(payload.into_inner()))
         .await
     {
-        match reg_res {
-            Ok(_) => HR::Ok().json(ApiResponse::new("Registration successful.")),
+        match session_token_res {
+            Ok(session_token) => HR::Ok().json(ApiResponse::with_content(
+                "Registration successful.",
+                session_token,
+            )),
             Err(api_err) => HR::Forbidden().json(ApiResponse::from_api_error(api_err)),
         }
     } else {
@@ -47,21 +45,37 @@ async fn register(
 }
 
 async fn login(
-    _req: HttpRequest,
     user_mgr: web::Data<Addr<user_mgr::UserManager>>,
     payload: web::Form<user_mgr::UserAuth>,
 ) -> HttpResponse {
-    if let Ok(msg_res) = user_mgr
+    if let Ok(session_token_res) = user_mgr
         .send(user_mgr::msg::Login(payload.into_inner()))
         .await
     {
-        if msg_res.is_ok() {
-            HR::Ok().json(ApiResponse::new("Login successful."))
-        } else {
-            HR::Forbidden().json(ApiResponse::new("Login failed."))
+        match session_token_res {
+            Ok(session_token) => HR::Ok().json(ApiResponse::with_content(
+                "Login successful.",
+                session_token,
+            )),
+            Err(api_err) => HR::Forbidden().json(ApiResponse::from_api_error(api_err)),
         }
     } else {
         HR::InternalServerError().json(ApiResponse::new("Login failed. Internal Error."))
+    }
+}
+
+async fn logout(
+    req: HttpRequest,
+    user_mgr: web::Data<Addr<user_mgr::UserManager>>,
+) -> HttpResponse {
+    if let Some(session_token) = get_session_token(&req) {
+        match user_mgr.send(user_mgr::msg::Logout(session_token)).await {
+            Ok(Ok(_)) => HR::Ok().json(ApiResponse::new("Logout successful.")),
+            Ok(Err(api_err)) => HR::Forbidden().json(ApiResponse::from_api_error(api_err)),
+            _ => HR::InternalServerError().json(ApiResponse::new("Logout failed. Internal Error.")),
+        }
+    } else {
+        HR::InternalServerError().json(ApiResponse::new("Logout failed. Internal Error."))
     }
 }
 
@@ -103,63 +117,21 @@ async fn get_user(
     }
 }
 
-async fn me(
-    _: HttpRequest,
-    user_mgr: web::Data<Addr<user_mgr::UserManager>>,
-    payload: web::Form<user_mgr::UserAuth>,
-) -> HR {
-    let user_res: Result<Option<user::PublicUserMe>, MailboxError> = user_mgr
-        .send(user_mgr::msg::GetUserMe(payload.into_inner()))
-        .await;
-    if let Ok(maybe_user) = user_res {
-        if let Some(user) = maybe_user {
-            HR::Ok().json(user)
-        } else {
-            HR::Forbidden().json(ApiResponse::new(
-                "Could not find user. Invalid credentials.",
-            ))
-        }
-    } else {
-        HR::InternalServerError().json(ApiResponse::new("Failed to retrieve user"))
-    }
-}
-
-/// Method that allows access to /me endpoint using basic auth headers instead of
-/// x-www-form-urlencoded
-///
-/// Logic: get header, convert to str, split into "Basic" and auth, decode auth using
-/// base64, split into "username":"password" and use that to authenticate
-async fn me_headers(req: HttpRequest, user_mgr: web::Data<Addr<user_mgr::UserManager>>) -> HR {
-    if let Some(Ok(auth)) = req.headers().get("Authorization").map(|a| a.to_str()) {
-        let parts = auth.split(' ').collect::<Vec<_>>();
-        if parts.len() == 2 && parts[0] == "Basic" {
-            if let Ok(Ok(uname_pw)) = base64::decode(parts[1]).map(String::from_utf8) {
-                if let [username, password] = uname_pw.split(':').collect::<Vec<_>>()[0..=1] {
-                    let user_res: Result<Option<user::PublicUserMe>, MailboxError> = user_mgr
-                        .send(user_mgr::msg::GetUserMe(user_mgr::UserAuth::new(
-                            username.to_owned(),
-                            password.to_owned(),
-                        )))
-                        .await;
-                    if let Ok(maybe_user) = user_res {
-                        if let Some(user) = maybe_user {
-                            HR::Ok().json(user)
-                        } else {
-                            HR::Forbidden().json(ApiResponse::new(
-                                "Could not find user. Invalid credentials.",
-                            ))
-                        }
-                    } else {
-                        HR::InternalServerError().json(ApiResponse::new("Failed to retrieve user"))
-                    }
-                } else {
-                    HR::Forbidden().json(ApiResponse::new("Invalid username:pw encoding"))
-                }
+async fn me(req: HttpRequest, user_mgr: web::Data<Addr<user_mgr::UserManager>>) -> HR {
+    if let Some(Ok(session_token)) = req.headers().get("session_token").map(|a| a.to_str()) {
+        let user_res: Result<Option<user::PublicUserMe>, MailboxError> = user_mgr
+            .send(user_mgr::msg::GetUserMe(SessionToken::parse(session_token)))
+            .await;
+        if let Ok(maybe_user) = user_res {
+            if let Some(user) = maybe_user {
+                HR::Ok().json(user)
             } else {
-                HR::Forbidden().json(ApiResponse::new("Invalid base64"))
+                HR::Forbidden().json(ApiResponse::new(
+                    "Could not find user. Invalid credentials.",
+                ))
             }
         } else {
-            HR::Forbidden().json(ApiResponse::new("Missing auth header"))
+            HR::InternalServerError().json(ApiResponse::new("Failed to retrieve user"))
         }
     } else {
         HR::Forbidden().json(ApiResponse::new("Missing auth header"))
@@ -202,54 +174,55 @@ mod friends {
     }*/
 
     pub async fn post(
+        req: HttpRequest,
         user_mgr: web::Data<Addr<user_mgr::UserManager>>,
-        auth: web::Form<user_mgr::UserAuth>,
         query: web::Query<UserIdQuery>,
     ) -> HR {
-        modify(
-            FriendsAction::Request(query.id),
-            user_mgr.get_ref(),
-            auth.into_inner(),
-        )
-        .await
+        modify(req, FriendsAction::Request(query.id), user_mgr.get_ref()).await
     }
 
     pub async fn delete(
+        req: HttpRequest,
         user_mgr: web::Data<Addr<user_mgr::UserManager>>,
-        auth: web::Form<user_mgr::UserAuth>,
         id: web::Path<UserId>,
     ) -> HR {
-        modify(
-            FriendsAction::Delete(id.0),
-            user_mgr.get_ref(),
-            auth.into_inner(),
-        )
-        .await
+        modify(req, FriendsAction::Delete(id.0), user_mgr.get_ref()).await
     }
 
     async fn modify(
+        req: HttpRequest,
         action: FriendsAction,
         user_mgr: &Addr<user_mgr::UserManager>,
-        auth: user_mgr::UserAuth,
     ) -> HR {
-        let user_res: Result<bool, MailboxError> = user_mgr
-            .send(UserAction {
-                action: Action::FriendsAction(action),
-                auth,
-            })
-            .await;
-        if let Ok(b) = user_res {
-            if b {
-                HR::Ok().into()
+        if let Some(session_token) = get_session_token(&req) {
+            let user_res: Result<bool, MailboxError> = user_mgr
+                .send(UserAction {
+                    action: Action::FriendsAction(action),
+                    session_token,
+                })
+                .await;
+            if let Ok(b) = user_res {
+                if b {
+                    HR::Ok().into()
+                } else {
+                    HR::Forbidden().json(ApiResponse::new(
+                        "Could not find user or invalid credentials.",
+                    ))
+                }
             } else {
-                HR::Forbidden().json(ApiResponse::new(
-                    "Could not find user or invalid credentials.",
-                ))
+                HR::InternalServerError().json(ApiResponse::new("Failed to retrieve user"))
             }
         } else {
-            HR::InternalServerError().json(ApiResponse::new("Failed to retrieve user"))
+            HR::Unauthorized().finish()
         }
     }
+}
+
+fn get_session_token(req: &HttpRequest) -> Option<SessionToken> {
+    req.headers()
+        .get("session_token")
+        .map(|s| s.to_str().ok().map(|s| SessionToken::parse(s)))
+        .flatten()
 }
 
 #[derive(Serialize, Deserialize)]
