@@ -196,10 +196,13 @@ impl Handler<ClientMsgString> for ClientConnection {
     }
 }
 
-pub struct ClientConnnectionMsg {
-    pub session_token: WSSessionToken,
-    pub client_adapter: Addr<ClientAdapter>,
-    pub connection_type: ConnectionType,
+pub enum ClientConnectionMsg {
+    Connect {
+        session_token: WSSessionToken,
+        client_adapter: Addr<ClientAdapter>,
+        connection_type: ConnectionType,
+    },
+    Close,
 }
 
 pub enum ConnectionType {
@@ -207,28 +210,35 @@ pub enum ConnectionType {
     Legacy,
 }
 
-impl Message for ClientConnnectionMsg {
+impl Message for ClientConnectionMsg {
     type Result = ();
 }
 
-impl Handler<ClientConnnectionMsg> for ClientConnection {
+impl Handler<ClientConnectionMsg> for ClientConnection {
     type Result = ();
 
-    fn handle(&mut self, msg: ClientConnnectionMsg, ctx: &mut Self::Context) -> Self::Result {
-        match msg.connection_type {
-            ConnectionType::Reliable { is_new } => {
-                self.connection_state = ClientAdapterConnectionState::Connected(
-                    msg.session_token.clone(),
-                    msg.client_adapter,
-                );
-                self.text(ctx, HelloOut::Ok(msg.session_token, is_new).serialize());
-            }
-            ConnectionType::Legacy => {
-                self.connection_state = ClientAdapterConnectionState::ConnectedLegacy(
-                    msg.session_token,
-                    msg.client_adapter,
-                );
-            }
+    fn handle(&mut self, msg: ClientConnectionMsg, ctx: &mut Self::Context) -> Self::Result {
+        match msg {
+            ClientConnectionMsg::Connect {
+                session_token,
+                client_adapter,
+                connection_type,
+            } => match connection_type {
+                ConnectionType::Reliable { is_new } => {
+                    self.connection_state = ClientAdapterConnectionState::Connected(
+                        session_token.clone(),
+                        client_adapter,
+                    );
+                    self.text(ctx, HelloOut::Ok(session_token, is_new).serialize());
+                }
+                ConnectionType::Legacy => {
+                    self.connection_state = ClientAdapterConnectionState::ConnectedLegacy(
+                        session_token,
+                        client_adapter,
+                    );
+                }
+            },
+            ClientConnectionMsg::Close => ctx.stop(),
         }
     }
 }

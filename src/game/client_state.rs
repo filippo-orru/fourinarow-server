@@ -1,6 +1,9 @@
 use super::lobby_mgr::{self, *};
 use super::msg::*;
-use super::{client_adapter::ClientAdapter, connection_mgr::ConnectionManager};
+use super::{
+    client_adapter::{ClientAdapter, ClientAdapterMsg},
+    connection_mgr::ConnectionManager,
+};
 use super::{connection_mgr::ConnectionManagerMsg, game_info::*};
 use super::{connection_mgr::WSSessionToken, lobby::*};
 use crate::{
@@ -367,6 +370,9 @@ impl Actor for ClientState {
         if let Some(user_info) = self.maybe_user_info.clone() {
             self.user_mgr
                 .do_send(user_mgr::msg::IntUserMgrMsg::StopPlaying(user_info.id));
+        }
+        if let BacklinkState::Linked(client_adapter) = &self.backlinked_state {
+            client_adapter.do_send(ClientAdapterMsg::Close);
         }
         Running::Stop
     }

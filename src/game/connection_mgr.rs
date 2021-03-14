@@ -4,7 +4,7 @@ use std::{collections::HashMap, time::Instant};
 
 use super::{
     client_adapter::{ClientAdapter, ClientAdapterMsg, ClientMsgString},
-    client_connection::{ClientConnnectionMsg, ConnectionType},
+    client_connection::{ClientConnectionMsg, ConnectionType},
     client_state::{ClientState, ClientStateMessage},
     lobby_mgr::LobbyManager,
     ClientConnection,
@@ -78,20 +78,19 @@ impl ConnectionManager {
         });
     }
 
-    fn send_server_info_to_all(&self, ctx: &mut Context<Self>) {
-        for (_, connection) in self.connections.iter() {
-            self.send_server_info(connection.state_addr.clone(), ctx);
-        }
-    }
-
-    fn send_server_info(&self, client_state_addr: Addr<ClientState>, _ctx: &mut Context<Self>) {
+    fn send_server_info_to_all(&self, _ctx: &mut Context<Self>) {
         // Return info about current server state
         let number_of_connections = self.connections.len();
-        client_state_addr.do_send(ClientStateMessage::CurrentServerState(
-            number_of_connections,
-            self.player_in_queue,
-            false,
-        ));
+
+        for (_, connection) in self.connections.iter() {
+            connection
+                .state_addr
+                .do_send(ClientStateMessage::CurrentServerState(
+                    number_of_connections,
+                    self.player_in_queue,
+                    false,
+                ));
+        }
     }
 
     fn generate_session_token() -> WSSessionToken {
@@ -225,7 +224,7 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                 );
                 new_adapter_addresses
                     .client_conn
-                    .do_send(ClientConnnectionMsg {
+                    .do_send(ClientConnectionMsg::Connect {
                         session_token,
                         client_adapter,
                         connection_type: ConnectionType::Reliable { is_new: true },
@@ -244,7 +243,7 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                     ));
                     new_adapter_addresses
                         .client_conn
-                        .do_send(ClientConnnectionMsg {
+                        .do_send(ClientConnectionMsg::Connect {
                             session_token: session_token.clone(),
                             client_adapter: connection.adapter_addr.clone(),
                             connection_type: ConnectionType::Reliable { is_new: false },
@@ -290,7 +289,7 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                 // Backlink
                 new_adapter_addresses
                     .client_conn
-                    .do_send(ClientConnnectionMsg {
+                    .do_send(ClientConnectionMsg::Connect {
                         session_token,
                         client_adapter: client_adapter.clone(),
                         connection_type: ConnectionType::Legacy,

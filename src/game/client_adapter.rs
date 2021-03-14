@@ -1,6 +1,6 @@
+use super::client_connection::{ClientConnection, ClientConnectionMsg};
 use super::client_state::*;
 use super::msg::*;
-use super::ClientConnection;
 
 use actix::*;
 
@@ -350,6 +350,11 @@ impl Actor for ClientAdapter {
 
     fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
         self.client_state.do_send(ClientStateMessage::Close);
+        use ClientConnectionConnectionState::*;
+        match &self.client_connection {
+            Connected(addr) | ConnectedLegacy(addr) => addr.do_send(ClientConnectionMsg::Close),
+            _ => {}
+        }
         Running::Stop
     }
 }
