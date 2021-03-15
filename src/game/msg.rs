@@ -76,7 +76,7 @@ pub enum ReliabilityError {
     InvalidContent, // Message content could not be parsed
     InvalidFormat,  // ReliableMessage could not be parsed
     UnknownMessage, // Correct format but unknown keyword (ack, syn, msg)
-                    //Unknown,        // all other errors
+    KillClient,     // Sent in case client is fucking up bad. Kills it immediately.
 }
 impl ReliabilityError {
     pub fn serialize(self) -> String {
@@ -85,6 +85,7 @@ impl ReliabilityError {
             InvalidContent => "INVALID_CONTENT",
             InvalidFormat => "INVALID_FORMAT",
             UnknownMessage => "UNKNOWN_MESSAGE",
+            KillClient => "KILL_CLIENT",
             //Unknown => "UNKNOWN",
         }
         .into()
@@ -234,8 +235,6 @@ pub enum SrvMsgError {
     UserNotPlaying,
     NoSuchUser,
     AlreadyPlaying,
-    KillClient,
-    // GameAlreadyOver,
 }
 
 impl SrvMsgError {
@@ -243,7 +242,6 @@ impl SrvMsgError {
         use SrvMsgError::*;
         match self {
             Internal => "Internal".to_owned(),
-            // InvalidMessage => "InvalidMessage".to_owned(),
             NotYourTurn => "NotYourTurn".to_owned(),
             NotInLobby => "NotInLobby".to_owned(),
             LobbyNotFound => "LobbyNotFound".to_owned(),
@@ -257,8 +255,6 @@ impl SrvMsgError {
             UserNotPlaying => "UserNotPlaying".to_owned(),
             NoSuchUser => "NoSuchUser".to_owned(),
             AlreadyPlaying => "AlreadyPlaying".to_owned(),
-            KillClient => "KillClient".to_owned(),
-            // GameAlreadyOver => "GameAlreadyOver".to_owned(),
         }
     }
 }
