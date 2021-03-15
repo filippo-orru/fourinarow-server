@@ -234,6 +234,7 @@ pub enum SrvMsgError {
     UserNotPlaying,
     NoSuchUser,
     AlreadyPlaying,
+    KillClient,
     // GameAlreadyOver,
 }
 
@@ -256,6 +257,7 @@ impl SrvMsgError {
             UserNotPlaying => "UserNotPlaying".to_owned(),
             NoSuchUser => "NoSuchUser".to_owned(),
             AlreadyPlaying => "AlreadyPlaying".to_owned(),
+            KillClient => "KillClient".to_owned(),
             // GameAlreadyOver => "GameAlreadyOver".to_owned(),
         }
     }
