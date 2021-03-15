@@ -14,6 +14,7 @@ use actix_web::{middleware, web, App, HttpResponse, HttpServer};
 
 use api::users::user_mgr::UserManager;
 use database::DatabaseManager;
+use dotenv::dotenv;
 use futures::executor::block_on;
 use game::connection_mgr::ConnectionManager;
 use game::lobby_mgr::LobbyManager;
@@ -23,6 +24,8 @@ const DEFAULT_BIND_ADDR: &str = "127.0.0.1:40146";
 
 #[actix_rt::main]
 async fn main() {
+    dotenv().expect("Failed to load .env file");
+
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", "actix_web=info");
     }
@@ -47,7 +50,7 @@ async fn main() {
 fn start_server(bind_addr: &str) -> Server {
     println!("Running on {}.", bind_addr);
     let db_mgr = Arc::new(block_on(DatabaseManager::new()));
-    let user_mgr_addr = UserManager::new(db_mgr).start();
+    let user_mgr_addr = UserManager::new(db_mgr.clone()).start();
     let logger_addr = Logger::new().start();
     let connection_mgr_addr = ConnectionManager::new(logger_addr.clone()).start();
     let lobby_mgr_addr = LobbyManager::new(
@@ -60,6 +63,7 @@ fn start_server(bind_addr: &str) -> Server {
         App::new()
             .wrap(middleware::Logger::default())
             .wrap(middleware::Compress::default())
+            .data(db_mgr.clone())
             .data(lobby_mgr_addr.clone())
             .data(connection_mgr_addr.clone())
             .data(user_mgr_addr.clone())

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::users::user::{BackendFriendRequest, BackendFriendRequestDirection, UserId};
 
-use super::{deserialize_vec, users::UserCollection};
+use super::deserialize_vec;
 
 pub struct FriendRequestCollection {
     pub collection: Collection,

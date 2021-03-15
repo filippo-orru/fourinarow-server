@@ -12,3 +12,6 @@ Cargo.lock
 data/*
 build.sh
 push_build_restart.bat
+
+# contains credentials
+.env

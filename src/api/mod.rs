@@ -1,5 +1,4 @@
-// mod routes;
-
+mod feedback;
 pub mod users;
 
 use actix_web::{web, HttpResponse};
@@ -11,10 +10,8 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route(web::get().to(HttpResponse::Ok))
             .route(web::head().to(HttpResponse::MethodNotAllowed)),
     )
-    .service(web::scope("/users").configure(users::config));
-    // .route("/stats", web::get().to(stats))
-    // .service(
-    //     web::resource("/shutdown").route(web::post().to(routes::shutdown)), // .route(web::get().to(|| HttpResponse::Ok().body("get ok"))),
+    .service(web::scope("/users").configure(users::config))
+    .service(web::scope("/feedback").configure(feedback::config));
 }
 
 #[derive(Serialize)]

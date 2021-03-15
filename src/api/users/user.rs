@@ -62,9 +62,11 @@ impl fmt::Display for UserId {
 impl fmt::Debug for UserId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use std::fmt::Write;
+        f.write_char('"')?;
         self.0.iter().for_each(|c| {
             let _ = f.write_char(*c);
         });
+        f.write_char('"')?;
 
         fmt::Result::Ok(())
     }
