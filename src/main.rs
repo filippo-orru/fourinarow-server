@@ -13,9 +13,9 @@ use actix_web::http::header;
 use actix_web::{middleware, web, App, HttpResponse, HttpServer};
 
 use api::users::user_mgr::UserManager;
+use async_std::task::block_on;
 use database::DatabaseManager;
 use dotenv::dotenv;
-use futures::executor::block_on;
 use game::connection_mgr::ConnectionManager;
 use game::lobby_mgr::LobbyManager;
 use logging::Logger;
