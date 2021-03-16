@@ -23,7 +23,7 @@ pub struct DatabaseManager {
 
 impl DatabaseManager {
     pub async fn new() -> DatabaseManager {
-        let opt = ClientOptions::parse(DB_URL).await.unwrap();
+        let opt = ClientOptions::parse(DB_URL).unwrap();
         let client = Client::with_options(opt).expect("Failed to start mongodb client");
         let db = client.database("fourinarow");
 
