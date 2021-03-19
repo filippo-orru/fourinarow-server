@@ -126,13 +126,11 @@ pub mod msg {
             {
                 let mut user = user;
                 if let Some(client_adapter) = user.playing {
+                    // Cancel current connection
                     client_adapter.do_send(ClientAdapterMsg::Close);
-                    user.playing = Some(msg.addr);
-                    self.db.users.update(user.clone());
-                } else {
-                    user.playing = Some(msg.addr);
-                    self.db.users.update(user.clone());
                 }
+                user.playing = Some(msg.addr);
+                self.db.users.update(user.clone());
                 Ok(PublicUserMe::from(user, &self.db))
             } else {
                 Err(SrvMsgError::IncorrectCredentials)
@@ -144,7 +142,7 @@ pub mod msg {
         Backlink(Addr<LobbyManager>),
         Game(GameMsg),
         // StartPlaying(String, String),
-        StopPlaying(UserId),
+        StopPlaying(UserId, Addr<ClientAdapter>),
     }
     pub enum GameMsg {
         PlayedGame(PlayedGameInfo),
@@ -199,10 +197,15 @@ pub mod msg {
                 //         user.playing = false;
                 //     }
                 // }
-                StopPlaying(id) => {
+                StopPlaying(id, addr) => {
                     if let Some(mut user) = self.db.users.get_id(&id, &self.db.friend_requests) {
-                        user.playing = None;
-                        self.db.users.update(user);
+                        if let Some(playing_addr) = user.playing {
+                            if playing_addr == addr {
+                                // Only reset the address if the requesting ClientAdapter is still linked (might have been replaced already)
+                                user.playing = None;
+                                self.db.users.update(user);
+                            }
+                        }
                     }
                 }
             }

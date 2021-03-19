@@ -227,7 +227,7 @@ pub enum GameKind {
     Simple,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PublicUserMe {
     pub id: UserId,
     pub username: String,
@@ -294,7 +294,7 @@ pub enum BackendFriendRequestDirection {
     Outgoing,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum PublicFriendState {
     IsFriend,
     IsRequestedByMe,
@@ -302,7 +302,7 @@ pub enum PublicFriendState {
     None,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Friend {
     id: UserId,
     username: String,

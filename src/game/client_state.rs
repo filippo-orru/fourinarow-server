@@ -123,10 +123,10 @@ impl Handler<PlayerMessage> for ClientState {
         let err = Err(());
         use PlayerMessage::*;
 
-        if let BacklinkState::Linked(ref client_conn_addr) = self.backlinked_state {
+        if let BacklinkState::Linked(ref client_adapter_addr) = self.backlinked_state {
             match msg {
                 Ping => {
-                    client_conn_addr.do_send(ServerMessage::Pong);
+                    client_adapter_addr.do_send(ServerMessage::Pong);
                     ok
                 }
                 PlaceChip(column) => {
@@ -137,7 +137,7 @@ impl Handler<PlayerMessage> for ClientState {
                         });
                         ok
                     } else {
-                        client_conn_addr
+                        client_adapter_addr
                             .do_send(ServerMessage::Error(Some(SrvMsgError::NotInLobby)));
                         err
                     }
@@ -150,7 +150,7 @@ impl Handler<PlayerMessage> for ClientState {
                         });
                         ok
                     } else {
-                        client_conn_addr
+                        client_adapter_addr
                             .do_send(ServerMessage::Error(Some(SrvMsgError::NotInLobby)));
                         err
                     }
@@ -174,7 +174,7 @@ impl Handler<PlayerMessage> for ClientState {
                             }
                         }
                         ClientConnState::Idle => {
-                            client_conn_addr
+                            client_adapter_addr
                                 .do_send(ServerMessage::Error(Some(SrvMsgError::NotInLobby)));
                         }
                     }
@@ -183,7 +183,7 @@ impl Handler<PlayerMessage> for ClientState {
                 }
                 LobbyRequest(kind) => {
                     if let ClientConnState::Idle = &self.conn_state {
-                        let client_conn_addr = client_conn_addr.clone();
+                        let client_conn_addr = client_adapter_addr.clone();
                         self.lobby_mgr
                             .send(lobby_mgr::LobbyRequest::NewLobby(
                                 client_conn_addr.clone(),
@@ -208,7 +208,7 @@ impl Handler<PlayerMessage> for ClientState {
                             .wait(ctx);
                         ok
                     } else {
-                        client_conn_addr
+                        client_adapter_addr
                             .do_send(ServerMessage::Error(Some(SrvMsgError::AlreadyInLobby)));
                         err
                     }
@@ -218,7 +218,7 @@ impl Handler<PlayerMessage> for ClientState {
                         self.lobby_mgr
                             .send(lobby_mgr::LobbyRequest::JoinLobby(
                                 id,
-                                client_conn_addr.clone(),
+                                client_adapter_addr.clone(),
                                 self.maybe_user_info.clone().map(|u| u.id),
                                 LobbyKind::Private,
                             ))
@@ -236,22 +236,25 @@ impl Handler<PlayerMessage> for ClientState {
                             .wait(ctx);
                         ok
                     } else {
-                        client_conn_addr
+                        client_adapter_addr
                             .do_send(ServerMessage::Error(Some(SrvMsgError::AlreadyInLobby)));
                         err
                     }
                 }
                 Login(session_token) => {
                     if let ClientConnState::InLobby(_, _) = self.conn_state {
-                        client_conn_addr
+                        client_adapter_addr
                             .do_send(ServerMessage::Error(Some(SrvMsgError::AlreadyInLobby)));
                         return err;
                     }
                     if let Some(user_info) = self.maybe_user_info.clone() {
                         self.user_mgr
-                            .do_send(user_mgr::msg::IntUserMgrMsg::StopPlaying(user_info.id));
+                            .do_send(user_mgr::msg::IntUserMgrMsg::StopPlaying(
+                                user_info.id,
+                                client_adapter_addr.clone(),
+                            ));
                     }
-                    let client_conn_addr = client_conn_addr.clone();
+                    let client_conn_addr = client_adapter_addr.clone();
                     self.user_mgr
                         .send(user_mgr::msg::StartPlaying {
                             session_token,
@@ -262,6 +265,7 @@ impl Handler<PlayerMessage> for ClientState {
                             if let Ok(maybe_id) = res {
                                 match maybe_id {
                                     Ok(user) => {
+                                        println!("Start playing! user: {:?}", user);
                                         act.maybe_user_info = Some(user);
                                         // act.user_mgr.do_send(IntUserMgrMsg::StartPlaying(id));
                                         client_conn_addr.do_send(ServerMessage::Okay);
@@ -284,7 +288,10 @@ impl Handler<PlayerMessage> for ClientState {
                 Logout => {
                     if let Some(user_info) = self.maybe_user_info.clone() {
                         self.user_mgr
-                            .do_send(user_mgr::msg::IntUserMgrMsg::StopPlaying(user_info.id));
+                            .do_send(user_mgr::msg::IntUserMgrMsg::StopPlaying(
+                                user_info.id,
+                                client_adapter_addr.clone(),
+                            ));
                     }
                     ok
                 }
@@ -293,17 +300,17 @@ impl Handler<PlayerMessage> for ClientState {
                     if let ClientConnState::Idle = &self.conn_state {
                         if let Some(user_info) = self.maybe_user_info.clone() {
                             self.user_mgr.do_send(user_mgr::msg::BattleReq {
-                                sender: (client_conn_addr.clone(), user_info.id),
+                                sender: (client_adapter_addr.clone(), user_info.id),
                                 receiver: friend_id,
                             });
                             ok
                         } else {
-                            client_conn_addr
+                            client_adapter_addr
                                 .do_send(ServerMessage::Error(Some(SrvMsgError::NotLoggedIn)));
                             err
                         }
                     } else {
-                        client_conn_addr
+                        client_adapter_addr
                             .do_send(ServerMessage::Error(Some(SrvMsgError::AlreadyInLobby)));
                         err
                     }
@@ -323,7 +330,7 @@ impl Handler<PlayerMessage> for ClientState {
                         self.connection_mgr
                             .do_send(ConnectionManagerMsg::ChatMessage(self.id.clone(), msg));
                     }
-                    client_conn_addr.do_send(ServerMessage::Okay);
+                    client_adapter_addr.do_send(ServerMessage::Okay);
                     ok
                 }
                 ChatRead => {
@@ -367,9 +374,14 @@ impl Actor for ClientState {
 
     fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
         // println!("ClientState: Stopping");
-        if let Some(user_info) = self.maybe_user_info.clone() {
-            self.user_mgr
-                .do_send(user_mgr::msg::IntUserMgrMsg::StopPlaying(user_info.id));
+        if let BacklinkState::Linked(client_adapter_addr) = &self.backlinked_state {
+            if let Some(user_info) = self.maybe_user_info.clone() {
+                self.user_mgr
+                    .do_send(user_mgr::msg::IntUserMgrMsg::StopPlaying(
+                        user_info.id,
+                        client_adapter_addr.clone(),
+                    ));
+            }
         }
         if let BacklinkState::Linked(client_adapter) = &self.backlinked_state {
             client_adapter.do_send(ClientAdapterMsg::Close);
