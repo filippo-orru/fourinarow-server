@@ -5,10 +5,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct SessionToken(String);
-// pub struct SessionToken {
-//     token: String,
-//     created_timestamp: u64,
-// }
 
 impl SessionToken {
     pub fn new() -> SessionToken {
@@ -28,6 +24,12 @@ impl SessionToken {
     }
 
     pub fn parse(text: &str) -> SessionToken {
+        // const SESSION_TOKEN_LEN: usize = 42;
+        // if text.len() >= SESSION_TOKEN_LEN {
+        //     Some(SessionToken(text.to_string()))
+        // } else {
+        //     None
+        // }
         SessionToken(text.to_string())
     }
 }

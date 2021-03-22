@@ -234,7 +234,6 @@ pub enum SrvMsgError {
     NotLoggedIn,
     UserNotPlaying,
     NoSuchUser,
-    AlreadyPlaying,
 }
 
 impl SrvMsgError {
@@ -254,7 +253,6 @@ impl SrvMsgError {
             NotLoggedIn => "NotLoggedIn".to_owned(),
             UserNotPlaying => "UserNotPlaying".to_owned(),
             NoSuchUser => "NoSuchUser".to_owned(),
-            AlreadyPlaying => "AlreadyPlaying".to_owned(),
         }
     }
 }

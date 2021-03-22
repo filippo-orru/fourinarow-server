@@ -1,8 +1,11 @@
+pub mod chat;
 mod feedback;
 pub mod users;
 
-use actix_web::{web, HttpResponse};
+use actix_web::{web, HttpRequest, HttpResponse};
 use serde::Serialize;
+
+use self::users::session_token::SessionToken;
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(
@@ -11,6 +14,7 @@ pub fn config(cfg: &mut web::ServiceConfig) {
             .route(web::head().to(HttpResponse::MethodNotAllowed)),
     )
     .service(web::scope("/users").configure(users::config))
+    .service(web::scope("/chat").configure(chat::config))
     .service(web::scope("/feedback").configure(feedback::config));
 }
 
@@ -30,7 +34,7 @@ impl ApiResponse<()> {
     #[allow(unreachable_patterns)]
     pub fn from_api_error(err: ApiError) -> Self {
         ApiResponse::new(
-            String::from("Registration failed")
+            String::from("Access failed")
                 + match err {
                     ApiError::PasswordInsufficient => ": insufficient password",
                     ApiError::EmailInUse => ": email in use",
@@ -67,4 +71,11 @@ pub enum ApiError {
     IncorrectCredentials,
     AlreadyPlaying,
     InternalServerError,
+}
+
+pub fn get_session_token(req: &HttpRequest) -> Option<SessionToken> {
+    req.headers()
+        .get("session_token")
+        .map(|s| s.to_str().ok().map(|s| SessionToken::parse(s)))
+        .flatten()
 }

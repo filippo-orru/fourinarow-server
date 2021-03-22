@@ -36,7 +36,11 @@ async fn main() {
         DEFAULT_BIND_ADDR
     };
 
-    env_logger::init();
+    env_logger::builder()
+        .format_timestamp_secs()
+        .format_module_path(false)
+        .init();
+
     let server = start_server(&bind_addr);
 
     let res = server.await;

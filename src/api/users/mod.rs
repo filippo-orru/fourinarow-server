@@ -4,7 +4,7 @@ pub mod user_mgr;
 
 use self::session_token::SessionToken;
 
-use super::ApiResponse;
+use super::{get_session_token, ApiResponse};
 use actix::{Addr, MailboxError};
 use actix_web::*;
 use serde::{Deserialize, Serialize};
@@ -93,7 +93,9 @@ async fn search_user(
         HR::Ok().json(Vec::<user::PublicUserOther>::new())
     } else {
         let user_res: Result<Option<Vec<user::PublicUserOther>>, MailboxError> = user_mgr
-            .send(user_mgr::msg::SearchUsers(query.search.clone()))
+            .send(user_mgr::msg::SearchUsers {
+                query: query.search.clone(),
+            })
             .await;
         if let Ok(Some(users)) = user_res {
             HR::Ok().json(users)
@@ -139,6 +141,8 @@ async fn me(req: HttpRequest, user_mgr: web::Data<Addr<user_mgr::UserManager>>) 
 }
 
 mod friends {
+    use crate::api::get_session_token;
+
     use super::*;
     use user::UserId;
     use user_mgr::msg::*;
@@ -216,13 +220,6 @@ mod friends {
             HR::Unauthorized().finish()
         }
     }
-}
-
-fn get_session_token(req: &HttpRequest) -> Option<SessionToken> {
-    req.headers()
-        .get("session_token")
-        .map(|s| s.to_str().ok().map(|s| SessionToken::parse(s)))
-        .flatten()
 }
 
 #[derive(Serialize, Deserialize)]

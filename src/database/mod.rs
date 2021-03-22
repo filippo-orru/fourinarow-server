@@ -1,4 +1,5 @@
-pub mod friend_requests;
+pub mod chat_msg;
+pub mod friendships;
 pub mod games;
 pub mod users;
 
@@ -10,7 +11,8 @@ use mongodb::{
 use serde::de::DeserializeOwned;
 
 use self::{
-    friend_requests::FriendRequestCollection, games::GameCollection, users::UserCollection,
+    chat_msg::ChatMsgCollection, friendships::FriendshipCollection, games::GameCollection,
+    users::UserCollection,
 };
 
 const DB_URL: &str = "mongodb://localhost:27017";
@@ -18,7 +20,8 @@ const DB_URL: &str = "mongodb://localhost:27017";
 pub struct DatabaseManager {
     pub users: UserCollection,
     pub games: GameCollection,
-    pub friend_requests: FriendRequestCollection,
+    pub friendships: FriendshipCollection,
+    pub chat_msgs: ChatMsgCollection,
 }
 
 impl DatabaseManager {
@@ -30,7 +33,8 @@ impl DatabaseManager {
         DatabaseManager {
             users: UserCollection::new(db.collection("users")),
             games: GameCollection::new(db.collection("games")),
-            friend_requests: FriendRequestCollection::new(db.collection("friend_requests")),
+            friendships: FriendshipCollection::new(db.collection("friendships")),
+            chat_msgs: ChatMsgCollection::new(db.collection("chat_messages")),
         }
     }
 

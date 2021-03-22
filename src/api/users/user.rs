@@ -1,14 +1,23 @@
-use crate::{database::DatabaseManager, game::client_adapter::ClientAdapter};
 use actix::Addr;
 use rand::{thread_rng, Rng};
 use serde::{de, Deserialize, Serialize, Serializer};
 use std::fmt;
+use std::slice::Iter;
+
+use crate::api::chat::ChatThreadId;
+use crate::{database::DatabaseManager, game::client_adapter::ClientAdapter};
 
 const USER_ID_LEN: usize = 12;
 const VALID_USER_ID_CHARS: &str = "0123456789abcdef";
 
-#[derive(Clone, Copy, Eq, Hash)]
+#[derive(Clone, Copy, Eq, Hash, PartialOrd)]
 pub struct UserId([char; USER_ID_LEN]);
+
+impl Ord for UserId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.to_string().cmp(&other.to_string())
+    }
+}
 
 impl UserId {
     pub fn new() -> UserId {
@@ -100,29 +109,35 @@ const SPECIAL_CHARS: &str = "0123456789=!<[>]()-/{}~+%$|#';&+€";
 const INVALID_CHARS: &str = "#:\\\"";
 
 #[derive(Clone)]
-pub struct BackendUser {
-    // #[serde(deserialize_with = "UserId::deserialize")]
+pub struct BackendUserMe {
     pub id: UserId,
     pub username: String,
     pub password: HashedPassword,
     pub email: Option<String>,
     pub game_info: UserGameInfo,
-    pub friends: Vec<UserId>,
     pub playing: Option<Addr<ClientAdapter>>,
-    pub friend_requests: Vec<BackendFriendRequest>,
+    pub friendships: BackendFriendshipsMe,
 }
-impl BackendUser {
-    pub fn new(username: String, password: String) -> BackendUser {
-        BackendUser {
+impl BackendUserMe {
+    pub fn new(username: String, password: String) -> BackendUserMe {
+        BackendUserMe {
             id: UserId::new(),
             username,
             password: HashedPassword::new(password),
             email: None,
             game_info: UserGameInfo::new(),
-            friends: Vec::new(),
             playing: None,
-            friend_requests: Vec::new(),
-            // login_key: None,
+            friendships: BackendFriendshipsMe::new(),
+        }
+    }
+
+    pub fn to_public_user_me(self, db: &DatabaseManager) -> PublicUserMe {
+        PublicUserMe {
+            id: self.id,
+            username: self.username,
+            email: self.email,
+            game_info: self.game_info,
+            friendships: self.friendships.to_public(db),
         }
     }
 
@@ -137,6 +152,56 @@ impl BackendUser {
         self.id = UserId::new();
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct BackendFriendshipsMe(Vec<BackendFriendshipMe>);
+
+impl BackendFriendshipsMe {
+    pub fn new() -> BackendFriendshipsMe {
+        BackendFriendshipsMe(Vec::new())
+    }
+
+    pub fn from(v: Vec<BackendFriendshipMe>) -> Self {
+        BackendFriendshipsMe(v)
+    }
+
+    pub fn friends(&self) -> impl Iterator<Item = &BackendFriendshipMe> {
+        self.0.iter().filter(|f| {
+            if let BackendFriendshipState::Friends { chat_thread_id: _ } = f.state {
+                true
+            } else {
+                false
+            }
+        })
+    }
+
+    pub fn iter(&self) -> Iter<BackendFriendshipMe> {
+        self.0.iter()
+    }
+
+    fn to_public(self, db: &DatabaseManager) -> Vec<PublicFriend> {
+        self.iter()
+            .filter_map(|friendship| -> Option<PublicFriend> {
+                let chat_thread_id = if let BackendFriendshipState::Friends { chat_thread_id } =
+                    friendship.state.clone()
+                {
+                    Some(chat_thread_id)
+                } else {
+                    None
+                };
+
+                db.users
+                    .get_id_public(&friendship.other_id)
+                    .map(|user| PublicFriend {
+                        user,
+                        friend_state: friendship.state.to_public(),
+                        chat_thread_id,
+                    })
+            })
+            .collect()
+    }
+}
+
 pub use pw::*;
 
 pub mod pw {
@@ -233,35 +298,14 @@ pub struct PublicUserMe {
     pub username: String,
     pub email: Option<String>,
     pub game_info: UserGameInfo,
-    pub friends: Vec<Friend>,
-    // pub friend_requests: Vec<PublicFriendRequest>,
-    // pub playing: bool,
+    pub friendships: Vec<PublicFriend>,
 }
-impl PublicUserMe {
-    pub fn from(user: BackendUser, db: &DatabaseManager) -> Self {
-        Self {
-            id: user.id,
-            username: user.username,
-            email: user.email,
-            game_info: user.game_info,
-            friends: user
-                .friends
-                .into_iter()
-                .filter_map(|friend_id| Friend::from(friend_id, PublicFriendState::IsFriend, &db))
-                .chain(user.friend_requests.into_iter().filter_map(|friend_req| {
-                    let friend_state = match friend_req.direction {
-                        BackendFriendRequestDirection::Incoming => {
-                            PublicFriendState::HasRequestedMe
-                        }
-                        BackendFriendRequestDirection::Outgoing => {
-                            PublicFriendState::IsRequestedByMe
-                        }
-                    };
-                    Friend::from(friend_req.other_id, friend_state, &db)
-                }))
-                .collect::<Vec<_>>(),
-        }
-    }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublicFriend {
+    pub user: PublicUserOther,
+    pub friend_state: PublicFriendState,
+    pub chat_thread_id: Option<ChatThreadId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -271,27 +315,29 @@ pub struct PublicUserOther {
     pub game_info: UserGameInfo,
     pub playing: bool,
 }
-impl PublicUserOther {
-    pub fn from(user: BackendUser) -> Self {
-        Self {
-            id: user.id,
-            username: user.username,
-            game_info: user.game_info,
-            playing: user.playing.is_some(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BackendFriendRequest {
-    pub direction: BackendFriendRequestDirection,
+pub struct BackendFriendshipMe {
+    pub state: BackendFriendshipState,
     pub other_id: UserId,
 }
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
-pub enum BackendFriendRequestDirection {
-    Incoming,
-    Outgoing,
+pub enum BackendFriendshipState {
+    ReqIncoming,
+    ReqOutgoing,
+    Friends { chat_thread_id: ChatThreadId },
+}
+
+impl BackendFriendshipState {
+    fn to_public(&self) -> PublicFriendState {
+        use BackendFriendshipState::*;
+        match self {
+            ReqOutgoing => PublicFriendState::IsRequestedByMe,
+            ReqIncoming => PublicFriendState::HasRequestedMe,
+            Friends { chat_thread_id: _ } => PublicFriendState::IsFriend,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -299,31 +345,4 @@ pub enum PublicFriendState {
     IsFriend,
     IsRequestedByMe,
     HasRequestedMe,
-    None,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Friend {
-    id: UserId,
-    username: String,
-    game_info: UserGameInfo,
-    friend_state: PublicFriendState,
-    playing: bool,
-}
-impl Friend {
-    pub fn from(
-        friend_id: UserId,
-        friend_state: PublicFriendState,
-        db: &DatabaseManager,
-    ) -> Option<Self> {
-        db.users
-            .get_id(&friend_id, &db.friend_requests)
-            .map(|user| Friend {
-                id: user.id,
-                username: user.username,
-                game_info: user.game_info,
-                friend_state,
-                playing: user.playing.is_some(),
-            })
-    }
 }
