@@ -1,8 +1,8 @@
 use crate::api::{chat::ChatThreadId, users::user::*, ApiError};
+use crate::database::DatabaseManager;
 use crate::game::client_adapter::ClientAdapterMsg;
 use crate::game::lobby_mgr::{self, LobbyManager};
 use crate::game::msg::*;
-use crate::{database::DatabaseManager, game::client_adapter::ClientAdapter};
 
 use actix::*;
 use serde::Deserialize;
@@ -41,7 +41,10 @@ pub struct UserAuth {
 pub mod msg {
 
     use super::*;
-    use crate::{api::users::session_token::SessionToken, game::msg::SrvMsgError};
+    use crate::{
+        api::users::session_token::SessionToken,
+        game::{client_state::ClientState, msg::SrvMsgError},
+    };
 
     pub struct Register(pub UserAuth);
     impl Message for Register {
@@ -111,7 +114,7 @@ pub mod msg {
 
     pub struct StartPlaying {
         pub session_token: SessionToken,
-        pub addr: Addr<ClientAdapter>,
+        pub addr: Addr<ClientState>,
     }
     impl Message for StartPlaying {
         type Result = Result<PublicUserMe, SrvMsgError>;
@@ -142,7 +145,7 @@ pub mod msg {
         Backlink(Addr<LobbyManager>),
         Game(GameMsg),
         // StartPlaying(String, String),
-        StopPlaying(UserId, Addr<ClientAdapter>),
+        StopPlaying(UserId, Addr<ClientState>),
     }
     pub enum GameMsg {
         PlayedGame(PlayedGameInfo),
@@ -220,7 +223,7 @@ pub mod msg {
     impl Handler<SearchUsers> for UserManager {
         type Result = Option<Vec<PublicUserOther>>;
         fn handle(&mut self, msg: SearchUsers, _ctx: &mut Self::Context) -> Self::Result {
-            Some(self.db.users.query(&msg.query, &self.db))
+            Some(self.db.users.query(&msg.query))
         }
     }
 
@@ -328,8 +331,9 @@ pub mod msg {
     }
 
     pub struct BattleReq {
-        pub sender: (Addr<ClientAdapter>, UserId),
-        pub receiver: UserId,
+        pub sender_addr: Addr<ClientState>,
+        pub sender_uid: UserId,
+        pub receiver_uid: UserId,
     }
     impl Message for BattleReq {
         type Result = ();
@@ -339,26 +343,29 @@ pub mod msg {
         fn handle(&mut self, msg: BattleReq, _ctx: &mut Self::Context) {
             if let BacklinkState::Linked(lobby_mgr) = &self.lobby_mgr_state {
                 // println!("user_mgr: got battlereq");
-                if let Some(receiver) = self.db.users.get_id(&msg.receiver, &self.db.friendships) {
+                if let Some(receiver) = self
+                    .db
+                    .users
+                    .get_id(&msg.receiver_uid, &self.db.friendships)
+                {
                     if let Some(receiver_addr) = &receiver.playing {
                         lobby_mgr.do_send(lobby_mgr::BattleReq {
-                            sender: msg.sender,
-                            receiver: (receiver_addr.clone(), msg.receiver),
+                            sender_addr: msg.sender_addr,
+                            sender_uid: msg.sender_uid,
+                            receiver_addr: receiver_addr.clone(),
+                            receiver_uid: msg.receiver_uid,
                         });
                     } else {
-                        msg.sender
-                            .0
+                        msg.sender_addr
                             .do_send(ServerMessage::Error(Some(SrvMsgError::UserNotPlaying)));
                     }
                 } else {
                     // println!("no such user: {}", msg.receiver);
-                    msg.sender
-                        .0
+                    msg.sender_addr
                         .do_send(ServerMessage::Error(Some(SrvMsgError::NoSuchUser)));
                 }
             } else {
-                msg.sender
-                    .0
+                msg.sender_addr
                     .do_send(ServerMessage::Error(Some(SrvMsgError::Internal)));
             }
         }

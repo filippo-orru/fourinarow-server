@@ -5,7 +5,8 @@ use std::fmt;
 use std::slice::Iter;
 
 use crate::api::chat::ChatThreadId;
-use crate::{database::DatabaseManager, game::client_adapter::ClientAdapter};
+use crate::database::DatabaseManager;
+use crate::game::client_state::ClientState;
 
 const USER_ID_LEN: usize = 12;
 const VALID_USER_ID_CHARS: &str = "0123456789abcdef";
@@ -115,9 +116,10 @@ pub struct BackendUserMe {
     pub password: HashedPassword,
     pub email: Option<String>,
     pub game_info: UserGameInfo,
-    pub playing: Option<Addr<ClientAdapter>>,
+    pub playing: Option<Addr<ClientState>>,
     pub friendships: BackendFriendshipsMe,
 }
+
 impl BackendUserMe {
     pub fn new(username: String, password: String) -> BackendUserMe {
         BackendUserMe {

@@ -6,19 +6,19 @@ use mongodb::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{deserialize_vec, friendships::FriendshipCollection, DatabaseManager};
+use super::{deserialize_vec, friendships::FriendshipCollection};
 use crate::{
     api::users::{
         session_token::SessionToken,
         user::{BackendUserMe, HashedPassword, PublicUserOther, UserGameInfo, UserId},
         user_mgr::UserAuth,
     },
-    game::client_adapter::ClientAdapter,
+    game::client_state::ClientState,
 };
 
 pub struct UserCollection {
     pub collection: Collection,
-    playing_users_cache: DashMap<UserId, Addr<ClientAdapter>>,
+    playing_users_cache: DashMap<UserId, Addr<ClientState>>,
 }
 
 impl UserCollection {
@@ -130,7 +130,7 @@ impl UserCollection {
             })
     }
 
-    pub fn query(&self, query: &str, db: &DatabaseManager) -> Vec<PublicUserOther> {
+    pub fn query(&self, query: &str) -> Vec<PublicUserOther> {
         let query = query.to_lowercase();
 
         // println!("query: {} -> {:?}", query, x);

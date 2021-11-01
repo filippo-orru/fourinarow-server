@@ -163,7 +163,7 @@ pub enum ServerMessage {
     Okay,
     ServerPing,
     ServerPong,
-    ReadyForBattlePing,
+    ReadyForGamePing,
     Error(Option<SrvMsgError>),
     BattleReq(UserId, GameId),
     CurrentServerState(usize, bool), // connected players, someone wants to play
@@ -193,7 +193,7 @@ impl ServerMessage {
             Okay => "OKAY".to_owned(),
             ServerPing => "PING".to_owned(),
             ServerPong => "PONG".to_owned(),
-            ReadyForBattlePing => "READY_FOR_BATTLE_PING".to_owned(),
+            ReadyForGamePing => "READY_FOR_GAME_PING".to_owned(),
             Error(maybe_msg) => {
                 if let Some(msg) = maybe_msg {
                     format!("ERROR:{}", msg.serialize())
@@ -279,7 +279,7 @@ pub enum PlayerMessage {
     Leaving,
     PlayerPing,
     PlayerPong,
-    ReadyForBattlePong,
+    ReadyForGamePong,
     LobbyRequest(LobbyKind),
     LobbyJoin(GameId),
     Login(SessionToken),
@@ -317,8 +317,8 @@ impl PlayerMessage {
             return Some(PlayerPing);
         } else if s == "PONG" {
             return Some(PlayerPong);
-        } else if s == "READY_FOR_BATTLE_PONG" {
-            return Some(ReadyForBattlePong);
+        } else if s == "READY_FOR_GAME_PONG" {
+            return Some(ReadyForGamePong);
         } else if s == "PLAY_AGAIN" {
             return Some(PlayAgainRequest);
         } else if s.starts_with("LOGIN:") {
