@@ -10,7 +10,11 @@ const QUEUE_CHECK_INTERVAL_MS: u64 = 250;
 const QUEUE_RESEND_TIMEOUT_MS: u128 = 700;
 const RPKT_RETRY_LIMIT: usize = 16;
 
-pub const MIN_VERSION: usize = 3;
+/* Version 4:
+   - ServerMsg.ReadyForBattlePing
+   - PlayerMsg.ReadyForBattlePong
+*/
+pub const MIN_VERSION: usize = 4;
 
 #[derive(Default)]
 struct ReliabilityLayer {

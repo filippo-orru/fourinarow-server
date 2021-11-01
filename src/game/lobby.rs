@@ -18,7 +18,10 @@ use std::time::{Duration, Instant};
 const LOBBY_TIMEOUT_S: u64 = 30 * 60; // 30 Minutes
 
 pub enum LobbyState {
-    OnePlayer(Addr<ClientAdapter>, Option<UserId>),
+    OnePlayer {
+        host_addr: Addr<ClientAdapter>,
+        maybe_host_uid: Option<UserId>,
+    },
     TwoPlayers {
         game_oid: GameOId,
         game_type: GameType,
@@ -33,46 +36,56 @@ pub struct ClientLobbyMessageNamed {
     pub msg: ClientLobbyMessage,
 }
 
-pub struct PlayerJoined(pub Addr<ClientAdapter>, pub Option<UserId>);
+pub struct PlayerJoined {
+    pub joining_addr: Addr<ClientAdapter>,
+    pub maybe_joining_uid: Option<UserId>,
+}
 impl Message for PlayerJoined {
     type Result = Result<(), ()>;
 }
 impl Handler<PlayerJoined> for Lobby {
     type Result = Result<(), ()>;
     fn handle(&mut self, msg: PlayerJoined, ctx: &mut Self::Context) -> Self::Result {
-        if let LobbyState::OnePlayer(ref host_addr, maybe_host_id) = self.game_state {
-            msg.0.do_send(ServerMessage::Okay);
+        if let LobbyState::OnePlayer {
+            ref host_addr,
+            maybe_host_uid,
+        } = self.lobby_state
+        {
+            msg.joining_addr.do_send(ServerMessage::Okay);
             host_addr.do_send(ServerMessage::OpponentJoining);
-            self.game_state = if let (Some(host_id), Some(joined_id)) = (maybe_host_id, msg.1) {
-                let game_info = GameInfo::new();
-                let game_oid = GameOId::new();
-                self.logger.do_send(GameLogEvent::StartGame {
-                    id: game_oid.clone(),
-                    ranked: true,
-                });
-                LobbyState::TwoPlayers {
-                    game_oid: game_oid,
-                    game_type: GameType::Registered(game_info, host_id, joined_id),
-                    host_addr: host_addr.clone(),
-                    joined_addr: msg.0,
-                }
-            } else {
-                let game_info = GameInfo::new();
-                let game_oid = GameOId::new();
-                self.logger.do_send(GameLogEvent::StartGame {
-                    id: game_oid.clone(),
-                    ranked: false,
-                });
-                LobbyState::TwoPlayers {
-                    game_oid: game_oid,
-                    game_type: GameType::Anonymous(game_info),
-                    host_addr: host_addr.clone(),
-                    joined_addr: msg.0,
-                }
-            };
+            msg.joining_addr.do_send(ServerMessage::OpponentJoining);
+            self.lobby_state =
+                if let (Some(host_id), Some(joined_id)) = (maybe_host_uid, msg.maybe_joining_uid) {
+                    let game_info = GameInfo::new();
+                    let game_oid = GameOId::new();
+                    self.logger.do_send(GameLogEvent::StartGame {
+                        id: game_oid.clone(),
+                        ranked: true,
+                    });
+                    LobbyState::TwoPlayers {
+                        game_oid: game_oid,
+                        game_type: GameType::Registered(game_info, host_id, joined_id),
+                        host_addr: host_addr.clone(),
+                        joined_addr: msg.joining_addr,
+                    }
+                } else {
+                    let game_info = GameInfo::new();
+                    let game_oid = GameOId::new();
+                    self.logger.do_send(GameLogEvent::StartGame {
+                        id: game_oid.clone(),
+                        ranked: false,
+                    });
+                    LobbyState::TwoPlayers {
+                        game_oid: game_oid,
+                        game_type: GameType::Anonymous(game_info),
+                        host_addr: host_addr.clone(),
+                        joined_addr: msg.joining_addr,
+                    }
+                };
             ctx.notify_later(LobbyMessage::GameStart, Duration::from_secs(2));
             Ok(())
         } else {
+            msg.joining_addr.do_send(ServerMessage::OpponentJoining);
             Err(())
         }
     }
@@ -102,7 +115,7 @@ pub struct Lobby {
     user_mgr: Addr<user_mgr::UserManager>,
     lobby_mgr: Addr<LobbyManager>,
     logger: Addr<Logger>,
-    game_state: LobbyState,
+    lobby_state: LobbyState,
     last_hb: Instant,
 }
 
@@ -125,7 +138,7 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                 self.logger.do_send(LobbyLogEvent::LobbyClosed {
                     id: self.lobby_id.clone(),
                 });
-                match &self.game_state {
+                match &self.lobby_state {
                     LobbyState::TwoPlayers {
                         game_oid,
                         game_type: _,
@@ -145,7 +158,10 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                         other_addr.do_send(ServerMessage::OpponentLeaving);
                         leaving_addr.do_send(ServerMessage::Okay);
                     }
-                    LobbyState::OnePlayer(host_addr, _) => {
+                    LobbyState::OnePlayer {
+                        host_addr,
+                        maybe_host_uid: _,
+                    } => {
                         host_addr.do_send(ServerMessage::Okay);
                     }
                 }
@@ -153,7 +169,7 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                 Ok(())
             }
             PlayAgainRequest => {
-                match &mut self.game_state {
+                match &mut self.lobby_state {
                     LobbyState::TwoPlayers {
                         game_oid: _,
                         game_type,
@@ -188,13 +204,16 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                             }
                         }
                     }
-                    LobbyState::OnePlayer(host_addr, _) => {
+                    LobbyState::OnePlayer {
+                        host_addr,
+                        maybe_host_uid: _,
+                    } => {
                         host_addr.do_send(ServerMessage::Error(Some(SrvMsgError::GameNotStarted)));
                     }
                 }
                 Ok(())
             }
-            PlaceChip(column) => match self.game_state {
+            PlaceChip(column) => match self.lobby_state {
                 LobbyState::TwoPlayers {
                     ref game_oid,
                     ref mut game_type,
@@ -240,12 +259,15 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                         }
                     }
                 },
-                LobbyState::OnePlayer(ref host_addr, _) => {
+                LobbyState::OnePlayer {
+                    ref host_addr,
+                    maybe_host_uid: _,
+                } => {
                     host_addr.do_send(ServerMessage::Error(Some(SrvMsgError::GameNotStarted)));
                     Err(())
                 }
             },
-            ChatMessage(msg, sender) => match self.game_state {
+            ChatMessage(msg, sender) => match self.lobby_state {
                 LobbyState::TwoPlayers {
                     game_oid: _,
                     game_type: _,
@@ -258,7 +280,7 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                 }
                 _ => Err(()),
             },
-            ChatRead => match self.game_state {
+            ChatRead => match self.lobby_state {
                 LobbyState::TwoPlayers {
                     game_oid: _,
                     game_type: _,
@@ -276,6 +298,7 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
 }
 
 pub enum LobbyMessage {
+    ReadyForBattlePing,
     GameStart,
     LobbyClose,
 }
@@ -294,7 +317,7 @@ impl Handler<LobbyMessage> for Lobby {
                     game_type,
                     ref host_addr,
                     ref joined_addr,
-                } = &mut self.game_state
+                } = &mut self.lobby_state
                 {
                     match game_type {
                         GameType::Registered(game_info, _, _) | GameType::Anonymous(game_info) => {
@@ -408,6 +431,14 @@ impl Handler<LobbyMessage> for Lobby {
                     Err(())
                 }
             }
+            LobbyMessage::ReadyForBattlePing => {
+                if let LobbyState::OnePlayer { host_addr, .. } = &self.lobby_state {
+                    host_addr.do_send(ServerMessage::ReadyForBattlePing);
+                    Ok(())
+                } else {
+                    Err(())
+                }
+            }
         }
     }
 }
@@ -428,7 +459,10 @@ impl Lobby {
             lobby_mgr,
             user_mgr,
             logger,
-            game_state: LobbyState::OnePlayer(host_addr, maybe_host_id),
+            lobby_state: LobbyState::OnePlayer {
+                host_addr,
+                maybe_host_uid: maybe_host_id,
+            },
             last_hb: Instant::now(),
         }
     }
@@ -452,7 +486,7 @@ impl Actor for Lobby {
     fn stopping(&mut self, _ctx: &mut Self::Context) -> Running {
         println!("Lobby ({}): closing.", self.game_id);
 
-        match self.game_state {
+        match self.lobby_state {
             LobbyState::TwoPlayers {
                 game_oid: _,
                 game_type: _,
@@ -465,7 +499,10 @@ impl Actor for Lobby {
                 joined_addr.do_send(ClientStateMessage::Reset);
                 joined_addr.do_send(ServerMessage::LobbyClosing);
             }
-            LobbyState::OnePlayer(ref host_addr, _) => {
+            LobbyState::OnePlayer {
+                ref host_addr,
+                maybe_host_uid: _,
+            } => {
                 host_addr.do_send(ClientStateMessage::Reset);
                 host_addr.do_send(ServerMessage::LobbyClosing);
             }
