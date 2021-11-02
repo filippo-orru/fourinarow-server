@@ -2,8 +2,6 @@ pub mod session_token;
 pub mod user;
 pub mod user_mgr;
 
-use self::session_token::SessionToken;
-
 use super::{get_session_token, ApiResponse};
 use actix::{Addr, MailboxError};
 use actix_web::*;
@@ -85,45 +83,56 @@ struct SearchQuery {
 }
 
 async fn search_user(
-    _: HttpRequest,
+    req: HttpRequest,
     user_mgr: web::Data<Addr<user_mgr::UserManager>>,
     query: web::Query<SearchQuery>,
 ) -> HR {
-    if query.0.search.len() > 25 && query.0.search.len() < 4 {
-        HR::Ok().json(Vec::<user::PublicUserOther>::new())
-    } else {
-        let user_res: Result<Option<Vec<user::PublicUserOther>>, MailboxError> = user_mgr
-            .send(user_mgr::msg::SearchUsers {
-                query: query.search.clone(),
-            })
-            .await;
-        if let Ok(Some(users)) = user_res {
-            HR::Ok().json(users)
+    if let Some(session_token) = get_session_token(&req) {
+        if query.0.search.len() > 25 && query.0.search.len() < 4 {
+            HR::Ok().json(Vec::<user::PublicUserOther>::new())
         } else {
-            HR::InternalServerError().json(ApiResponse::new("Failed to retrieve users"))
+            let user_res: Result<_, MailboxError> = user_mgr
+                .send(user_mgr::msg::SearchUsers {
+                    session_token,
+                    query: query.search.clone(),
+                })
+                .await;
+            if let Ok(users) = user_res {
+                HR::Ok().json(users.0)
+            } else {
+                HR::InternalServerError().json(ApiResponse::new("Failed to retrieve users"))
+            }
         }
+    } else {
+        HR::Unauthorized().json(ApiResponse::new("Missing session token"))
     }
 }
 async fn get_user(
-    _: HttpRequest,
+    req: HttpRequest,
     user_mgr: web::Data<Addr<user_mgr::UserManager>>,
     path: web::Path<user::UserId>,
 ) -> HR {
-    let user_res: Result<Option<user::PublicUserOther>, MailboxError> = user_mgr
-        .send(user_mgr::msg::GetUserOther(path.into_inner()))
-        .await;
-    if let Ok(Some(user)) = user_res {
-        HR::Ok().json(user)
+    if let Some(session_token) = get_session_token(&req) {
+        let user_res: Result<_, MailboxError> = user_mgr
+            .send(user_mgr::msg::GetUserOther {
+                session_token,
+                user_id: path.into_inner(),
+            })
+            .await;
+        if let Ok(Some(user)) = user_res {
+            HR::Ok().json(user)
+        } else {
+            HR::InternalServerError().json(ApiResponse::new("Failed to retrieve users"))
+        }
     } else {
-        HR::InternalServerError().json(ApiResponse::new("Failed to retrieve users"))
+        HR::Unauthorized().json(ApiResponse::new("Missing session token"))
     }
 }
 
 async fn me(req: HttpRequest, user_mgr: web::Data<Addr<user_mgr::UserManager>>) -> HR {
-    if let Some(Ok(session_token)) = req.headers().get("session_token").map(|a| a.to_str()) {
-        let user_res: Result<Option<user::PublicUserMe>, MailboxError> = user_mgr
-            .send(user_mgr::msg::GetUserMe(SessionToken::parse(session_token)))
-            .await;
+    if let Some(session_token) = get_session_token(&req) {
+        let user_res: Result<Option<user::PublicUserMe>, MailboxError> =
+            user_mgr.send(user_mgr::msg::GetUserMe(session_token)).await;
         if let Ok(maybe_user) = user_res {
             if let Some(user) = maybe_user {
                 HR::Ok().json(user)

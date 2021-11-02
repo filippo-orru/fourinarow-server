@@ -20,7 +20,7 @@ async fn create_feedback(
 ) -> HttpResponse {
     let maybe_user_name = feedback
         .user_id
-        .and_then(|id| db.users.get_id_public(&id))
+        .and_then(|id| db.users.get_id_other(&id))
         .map(|user| user.username.clone());
 
     actix::spawn(send_feedback_mail_wrap(

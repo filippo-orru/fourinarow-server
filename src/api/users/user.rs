@@ -141,6 +141,26 @@ impl BackendUserMe {
         }
     }
 
+    pub fn get_public_user_other(
+        &self,
+        other_backend: BackendUserOther,
+    ) -> Option<PublicUserOther> {
+        self.friendships
+            .iter()
+            .find(|f| f.other_id == other_backend.id)
+            .map(|friendship| {
+                let (friend_state, chat_thread_id) = friendship.state.to_public_tuple();
+                PublicUserOther {
+                    id: other_backend.id,
+                    username: other_backend.username,
+                    game_info: other_backend.game_info,
+                    playing: other_backend.playing,
+                    friend_state,
+                    chat_thread_id,
+                }
+            })
+    }
+
     pub fn check_password(password: &str) -> bool {
         password.len() > MIN_PASSWORD_LENGTH
             && password.chars().any(|c| SPECIAL_CHARS.contains(c))
@@ -179,9 +199,9 @@ impl BackendFriendshipsMe {
         self.0.iter()
     }
 
-    fn to_public(self, db: &DatabaseManager) -> Vec<PublicFriend> {
+    fn to_public(self, db: &DatabaseManager) -> Vec<PublicUserOther> {
         self.iter()
-            .filter_map(|friendship| -> Option<PublicFriend> {
+            .filter_map(|friendship| -> Option<PublicUserOther> {
                 let chat_thread_id = if let BackendFriendshipState::Friends { chat_thread_id } =
                     friendship.state.clone()
                 {
@@ -191,15 +211,26 @@ impl BackendFriendshipsMe {
                 };
 
                 db.users
-                    .get_id_public(&friendship.other_id)
-                    .map(|user| PublicFriend {
-                        user,
+                    .get_id_other(&friendship.other_id)
+                    .map(|user| PublicUserOther {
+                        id: user.id,
+                        username: user.username,
+                        game_info: user.game_info,
+                        playing: user.playing,
                         friend_state: friendship.state.to_public(),
                         chat_thread_id,
                     })
             })
             .collect()
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct BackendUserOther {
+    pub id: UserId,
+    pub username: String,
+    pub game_info: UserGameInfo,
+    pub playing: bool,
 }
 
 pub use pw::*;
@@ -298,14 +329,7 @@ pub struct PublicUserMe {
     pub username: String,
     pub email: Option<String>,
     pub game_info: UserGameInfo,
-    pub friendships: Vec<PublicFriend>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PublicFriend {
-    pub user: PublicUserOther,
-    pub friend_state: PublicFriendState,
-    pub chat_thread_id: Option<ChatThreadId>,
+    pub friendships: Vec<PublicUserOther>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -314,6 +338,8 @@ pub struct PublicUserOther {
     pub username: String,
     pub game_info: UserGameInfo,
     pub playing: bool,
+    pub friend_state: PublicFriendState,
+    pub chat_thread_id: Option<ChatThreadId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -330,12 +356,22 @@ pub enum BackendFriendshipState {
 }
 
 impl BackendFriendshipState {
-    fn to_public(&self) -> PublicFriendState {
+    pub fn to_public(&self) -> PublicFriendState {
         use BackendFriendshipState::*;
         match self {
             ReqOutgoing => PublicFriendState::IsRequestedByMe,
             ReqIncoming => PublicFriendState::HasRequestedMe,
             Friends { chat_thread_id: _ } => PublicFriendState::IsFriend,
+        }
+    }
+    pub fn to_public_tuple(&self) -> (PublicFriendState, Option<ChatThreadId>) {
+        use BackendFriendshipState::*;
+        match self {
+            ReqOutgoing => (PublicFriendState::IsRequestedByMe, None),
+            ReqIncoming => (PublicFriendState::HasRequestedMe, None),
+            Friends { chat_thread_id } => {
+                (PublicFriendState::IsFriend, Some(chat_thread_id.clone()))
+            }
         }
     }
 }

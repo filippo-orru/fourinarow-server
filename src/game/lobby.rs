@@ -4,9 +4,12 @@ use super::game_info::{GameId, GameInfo, GameType, Player};
 use super::lobby_mgr::{LobbyManager, LobbyManagerMsg};
 use super::msg::*;
 use crate::{
-    api::users::{
-        user::{PlayedGameInfo, UserId},
-        user_mgr,
+    api::{
+        chat::{ChatThreadId, PublicChatMsg},
+        users::{
+            user::{PlayedGameInfo, UserId},
+            user_mgr,
+        },
     },
     logging::*,
 };
@@ -82,7 +85,7 @@ pub enum ClientLobbyMessage {
     PlayerLeaving { reason: PlayerLeaveReason },
     PlayAgainRequest,
     PlaceChip(usize),
-    ChatMessage(String, Option<String>), // content, sender
+    ChatMessage(ChatThreadId, PublicChatMsg), // content, sender
     ChatRead,
 }
 
@@ -245,7 +248,7 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                     Err(())
                 }
             },
-            ChatMessage(msg, sender) => match self.game_state {
+            ChatMessage(thread_id, chat_msg) => match self.game_state {
                 LobbyState::TwoPlayers {
                     game_oid: _,
                     game_type: _,
@@ -253,7 +256,7 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                     ref joined_addr,
                 } => {
                     let msg_recipient = msg_named.sender.other().select(host_addr, joined_addr);
-                    msg_recipient.do_send(ServerMessage::ChatMessage(false, msg, sender));
+                    msg_recipient.do_send(ServerMessage::ChatMessage(thread_id, chat_msg));
                     Ok(())
                 }
                 _ => Err(()),
@@ -322,84 +325,6 @@ impl Handler<LobbyMessage> for Lobby {
                                 game_info.turn == Player::Two,
                                 Some(host_id.to_string()),
                             ));
-                            // println!("before async");
-                            // || {
-                            // async {
-                            // if let (Ok(Some(host_user)), Ok(Some(joined_user))) = (
-                            // user_mgr
-                            //     .send(user_mgr::msg::GetUser(UserIdent::Id(*host_id)))
-                            //     .into_actor(self)
-                            //     .wait(ctx),
-                            // user_mgr
-                            //     .send(user_mgr::msg::GetUser(UserIdent::Id(*joined_id)))
-                            //     .into_actor(self)
-                            //     .wait(ctx),
-                            // ) {
-                            // if let (Ok(Some(host_user)), Ok(Some(joined_user))) =
-                            //     // futures::executor::block_on(async {
-                            //     (
-                            //     ctx.wait(
-                            //         user_mgr
-                            //             .send(user_mgr::msg::GetUser(UserIdent::Id(*host_id)))
-                            //             .into_actor(self),
-                            //     ),
-                            //     ctx.wait(
-                            //         user_mgr
-                            //             .send(user_mgr::msg::GetUser(UserIdent::Id(*joined_id)))
-                            //             .into_actor(self),
-                            //     ),
-                            // ) {
-                            // user_mgr
-                            //     .send(user_mgr::msg::GetUser(UserIdent::Id(*host_id)))
-                            //     .into_actor(self)
-                            //     .then(|host_res: Result<Option<PublicUser>, _>, act, ctx_inner| {
-                            //         user_mgr
-                            //             .send(user_mgr::msg::GetUser(UserIdent::Id(*joined_id)))
-                            //             // .send(user_mgr::msg::GetUser(UserIdent::Id(*joined_id)))
-                            //             .into_actor(act)
-                            //             .then(|joined_res: Result<Option<PublicUser>, _>, _, _| {
-                            //                 if let (Ok(Some(host_user)), Ok(Some(joined_user))) =
-                            //                     (host_res, joined_res)
-                            //                 {
-                            //                     host_addr.clone().do_send(
-                            //                         ServerMessage::GameStart(
-                            //                             game_info.turn == Player::One,
-                            //                             Some(host_user.username),
-                            //                         ),
-                            //                     );
-                            //                     joined_addr.clone().do_send(
-                            //                         ServerMessage::GameStart(
-                            //                             game_info.turn == Player::Two,
-                            //                             Some(joined_user.username),
-                            //                         ),
-                            //                     );
-                            //                 } else {
-                            //                     println!("Game not starting :(");
-                            //                     host_addr.clone().do_send(ServerMessage::Error(
-                            //                         Some(SrvMsgError::IncorrectCredentials),
-                            //                     ));
-                            //                     joined_addr.clone().do_send(ServerMessage::Error(
-                            //                         Some(SrvMsgError::IncorrectCredentials),
-                            //                     ));
-                            //                     ctx.stop();
-                            //                 }
-                            //                 fut::ready(())
-                            //             })
-                            //             .wait(ctx_inner);
-                            //         fut::ready(())
-                            //     })
-                            //     .wait(ctx);
-                            // }
-                            // .into_actor(self)
-                            // .wait(ctx);
-                            // println!("after async");
-                            // }
-                            // fut::ready(())
-                            //         })
-                            //         .wait(ctx);
-                            // })
-                            // .wait(ctx);
-                            // return Ok(());
                         }
                     }
 

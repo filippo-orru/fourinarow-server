@@ -6,11 +6,11 @@ use mongodb::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{deserialize_vec, friendships::FriendshipCollection, DatabaseManager};
+use super::{deserialize_vec, friendships::FriendshipCollection};
 use crate::{
     api::users::{
         session_token::SessionToken,
-        user::{BackendUserMe, HashedPassword, PublicUserOther, UserGameInfo, UserId},
+        user::{BackendUserMe, BackendUserOther, HashedPassword, UserGameInfo, UserId},
         user_mgr::UserAuth,
     },
     game::client_adapter::ClientAdapter,
@@ -115,13 +115,13 @@ impl UserCollection {
             })
     }
 
-    pub fn get_id_public(&self, id: &UserId) -> Option<PublicUserOther> {
+    pub fn get_id_other(&self, id: &UserId) -> Option<BackendUserOther> {
         self.collection
             .find_one(doc! {"_id": id.to_string()}, None)
             .ok()
             .flatten()
             .and_then(|doc| {
-                super::deserialize::<DbUser>(doc).map(|user| PublicUserOther {
+                super::deserialize::<DbUser>(doc).map(|user| BackendUserOther {
                     id: user.id,
                     username: user.username,
                     game_info: user.game_info,
@@ -130,7 +130,7 @@ impl UserCollection {
             })
     }
 
-    pub fn query(&self, query: &str, db: &DatabaseManager) -> Vec<PublicUserOther> {
+    pub fn query(&self, query: &str) -> Vec<BackendUserOther> {
         let query = query.to_lowercase();
 
         // println!("query: {} -> {:?}", query, x);
@@ -140,7 +140,7 @@ impl UserCollection {
             .map(|cursor| deserialize_vec::<DbUser>(cursor))
             .unwrap_or(Vec::new())
             .into_iter()
-            .map(|user| PublicUserOther {
+            .map(|user| BackendUserOther {
                 id: user.id,
                 username: user.username,
                 game_info: user.game_info,

@@ -1,15 +1,29 @@
 use actix_web::{web, HttpRequest, HttpResponse};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{sync::Arc, time::SystemTime};
 
 use crate::{api::users::user::UserId, database::DatabaseManager};
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct PublicChatMsg {
-    pub id: i64, // Monotonically increasing index of messages in this thread_id
+    pub msg_id: i64, // Monotonically increasing index of messages in this thread_id
     pub content: String,
     pub timestamp: i64,
     pub from: Option<UserId>,
+}
+
+impl PublicChatMsg {
+    pub fn new(msg_id: usize, content: String, from: Option<UserId>) -> Self {
+        PublicChatMsg {
+            msg_id: msg_id as i64,
+            content,
+            timestamp: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64,
+            from,
+        }
+    }
 }
 
 pub fn config(cfg: &mut web::ServiceConfig) {
@@ -49,7 +63,7 @@ async fn post_chat_msg(
             .get_session_token(session_token, &db_mgr.friendships)
             .map(|u| u.id)
     });
-    if let Ok(_) = db_mgr.chat_msgs.add(thread_id, user_id, msg) {
+    if let Ok(_) = db_mgr.chat_msgs.insert(thread_id, user_id, msg) {
         HttpResponse::Ok()
     } else {
         HttpResponse::InternalServerError()
@@ -81,6 +95,14 @@ mod chat_thread_id {
 
         pub fn parse(text: &str) -> ChatThreadId {
             ChatThreadId(text.to_string())
+        }
+
+        pub fn global() -> ChatThreadId {
+            ChatThreadId::parse("global")
+        }
+
+        pub fn ingame() -> ChatThreadId {
+            ChatThreadId::parse("ingame")
         }
     }
     impl fmt::Display for ChatThreadId {

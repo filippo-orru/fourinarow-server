@@ -9,7 +9,14 @@ use super::{
     lobby_mgr::LobbyManager,
     ClientConnection,
 };
-use crate::{api::users::user_mgr::UserManager, game::msg::ServerMessage, logging::Logger};
+use crate::{
+    api::{
+        chat::{ChatThreadId, PublicChatMsg},
+        users::{user::PublicUserMe, user_mgr::UserManager},
+    },
+    game::msg::ServerMessage,
+    logging::Logger,
+};
 
 pub type WSSessionToken = String;
 
@@ -109,6 +116,7 @@ struct Connection {
     adapter_addr: Addr<ClientAdapter>,
     state_addr: Addr<ClientState>,
     state: ConnectionState,
+    maybe_user_info: Option<PublicUserMe>,
 }
 
 pub enum ConnectionManagerMsg {
@@ -118,12 +126,13 @@ pub enum ConnectionManagerMsg {
         is_legacy: bool,
     },
     Update(bool), // (player_in_queue): sent by lobbyManager when clients should be notified
-    ChatMessage(WSSessionToken, String), // global chat message (sender_addr, msg)
+    ChatMessage(WSSessionToken, PublicChatMsg), // global chat message (sender_addr, msg)
     ChatRead(WSSessionToken),
     Backlink(Addr<LobbyManager>), // sent by lobbyManager when it starts to form bidirectional link
     RequestAdapterNew(NewAdapterAdresses), // sent when client first connects
     RequestAdapterExisting(NewAdapterAdresses, String), // sent when client reconnects
     RequestAdapterLegacy(NewAdapterAdresses, Option<String>), // sent when legacy client first connects with playerMsgStr in "queue"
+    SetUserInfo(WSSessionToken, PublicUserMe),
 }
 
 pub struct NewAdapterAdresses {
@@ -179,9 +188,8 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                 for (id, connection) in self.connections.iter() {
                     if id != &sender_id {
                         connection.state_addr.do_send(ServerMessage::ChatMessage(
-                            true,
+                            ChatThreadId::global(),
                             msg.clone(),
-                            Some(sender_id[0..5].into()),
                         ));
                     }
                 }
@@ -220,6 +228,7 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                         state: ConnectionState::Connected(
                             new_adapter_addresses.client_conn.clone(),
                         ),
+                        maybe_user_info: None,
                     },
                 );
                 new_adapter_addresses
@@ -284,6 +293,7 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                         state: ConnectionState::Connected(
                             new_adapter_addresses.client_conn.clone(),
                         ),
+                        maybe_user_info: None,
                     },
                 );
                 // Backlink
@@ -298,6 +308,11 @@ impl Handler<ConnectionManagerMsg> for ConnectionManager {
                     client_adapter.do_send(ClientMsgString(str_msg));
                 }
                 self.send_server_info_batched = true;
+            }
+            SetUserInfo(session_token, user) => {
+                self.connections
+                    .get_mut(&session_token)
+                    .map(|connection| connection.maybe_user_info = Some(user));
             }
         }
         Ok(())

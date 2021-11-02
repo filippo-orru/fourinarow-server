@@ -3,7 +3,13 @@ use super::{
     connection_mgr::WSSessionToken,
     game_info::{GameId, GAME_ID_LEN},
 };
-use crate::api::users::{session_token::SessionToken, user::UserId};
+use crate::api::{
+    chat::{ChatThreadId, PublicChatMsg},
+    users::{
+        session_token::SessionToken,
+        user::{PublicUserOther, UserId},
+    },
+};
 use actix::prelude::*;
 
 #[derive(Debug, Clone)]
@@ -165,8 +171,8 @@ pub enum ServerMessage {
     Error(Option<SrvMsgError>),
     BattleReq(UserId, GameId),
     CurrentServerState(usize, bool), // connected players, someone wants to play
-    ChatMessage(bool, String, Option<String>), // is_global, message, sender_name
-    ChatRead(bool),                  // is_global
+    ChatMessage(ChatThreadId, PublicChatMsg),
+    ChatRead(bool), // is_global
 }
 
 impl ServerMessage {
@@ -204,14 +210,12 @@ impl ServerMessage {
                 "CURRENT_SERVER_STATE:{}:{}",
                 connected_players, player_waiting
             ),
-            ChatMessage(is_global, message, maybe_sender) => {
-                let sender_name = if let Some(sender) = maybe_sender {
-                    sender
-                } else {
-                    "".to_string()
-                };
+            ChatMessage(thread_id, msg) => {
+                let message = serde_json::to_string(&msg).unwrap();
+                let encoded_thread_id =
+                    base64::encode_config(thread_id.to_string(), base64::STANDARD);
                 let encoded_message = base64::encode_config(message, base64::STANDARD);
-                format!("CHAT_MSG:{}:{}:{}", is_global, encoded_message, sender_name)
+                format!("CHAT_MSG:{}:{}", encoded_thread_id, encoded_message)
             }
             ChatRead(is_global) => format!("CHAT_READ:{}", is_global),
         }

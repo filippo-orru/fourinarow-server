@@ -7,6 +7,7 @@ use super::{
 use super::{connection_mgr::ConnectionManagerMsg, game_info::*};
 use super::{connection_mgr::WSSessionToken, lobby::*};
 use crate::{
+    api::chat::*,
     api::users::{
         user::PublicUserMe,
         user_mgr::{self, UserManager},
@@ -17,7 +18,7 @@ use crate::{
 use actix::*;
 
 pub struct ClientState {
-    id: WSSessionToken,
+    wssession_token: WSSessionToken,
     lobby_mgr: Addr<LobbyManager>,
     user_mgr: Addr<UserManager>,
     _logger: Addr<Logger>,
@@ -29,7 +30,11 @@ pub struct ClientState {
 
 pub enum ClientConnState {
     Idle,
-    InLobby(Player, Addr<Lobby>),
+    InLobby {
+        player: Player,
+        lobby_addr: Addr<Lobby>,
+        message_id: usize,
+    },
 }
 
 impl ClientState {
@@ -41,7 +46,7 @@ impl ClientState {
         connection_mgr: Addr<ConnectionManager>,
     ) -> ClientState {
         ClientState {
-            id,
+            wssession_token: id,
             lobby_mgr,
             user_mgr,
             _logger,
@@ -266,7 +271,13 @@ impl Handler<PlayerMessage> for ClientState {
                                 match maybe_id {
                                     Ok(user) => {
                                         println!("Start playing! user: {:?}", user);
-                                        act.maybe_user_info = Some(user);
+                                        act.maybe_user_info = Some(user.clone());
+                                        act.connection_mgr.do_send(
+                                            ConnectionManagerMsg::SetUserInfo(
+                                                self.wssession_token,
+                                                user,
+                                            ),
+                                        );
                                         // act.user_mgr.do_send(IntUserMgrMsg::StartPlaying(id));
                                         client_conn_addr.do_send(ServerMessage::Okay);
                                     }
@@ -315,20 +326,36 @@ impl Handler<PlayerMessage> for ClientState {
                         err
                     }
                 }
-                ChatMessage(msg) => {
-                    if let ClientConnState::InLobby(player, lobby_addr) = &self.conn_state {
+                ChatMessage(msg_str) => {
+                    if let ClientConnState::InLobby {
+                        player,
+                        lobby_addr,
+                        message_id,
+                    } = &mut self.conn_state
+                    {
                         let username = if let Some(user_info) = self.maybe_user_info.clone() {
                             Some(user_info.username)
                         } else {
                             None
                         };
+                        let chat_msg = PublicChatMsg {
+                            msg_id: message_id as i64,
+                            content: msg_str,
+                            timestamp: ,
+                            from: (),
+                        };
+                        message_id += 1;
+
                         lobby_addr.do_send(ClientLobbyMessageNamed {
                             sender: *player,
-                            msg: ClientLobbyMessage::ChatMessage(msg, username),
+                            msg: ClientLobbyMessage::ChatMessage(chat_msg),
                         });
                     } else {
                         self.connection_mgr
-                            .do_send(ConnectionManagerMsg::ChatMessage(self.id.clone(), msg));
+                            .do_send(ConnectionManagerMsg::ChatMessage(
+                                self.wssession_token.clone(),
+                                msg,
+                            ));
                     }
                     client_adapter_addr.do_send(ServerMessage::Okay);
                     ok
@@ -341,7 +368,7 @@ impl Handler<PlayerMessage> for ClientState {
                         });
                     } else {
                         self.connection_mgr
-                            .do_send(ConnectionManagerMsg::ChatRead(self.id.clone()));
+                            .do_send(ConnectionManagerMsg::ChatRead(self.wssession_token.clone()));
                     }
                     ok
                 }

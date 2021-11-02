@@ -211,16 +211,33 @@ pub mod msg {
     }
 
     pub struct SearchUsers {
+        pub session_token: SessionToken,
         pub query: String,
     }
     impl Message for SearchUsers {
-        type Result = Option<Vec<PublicUserOther>>;
+        type Result = SearchUsersResult;
     }
 
+    #[derive(MessageResponse)]
+    pub struct SearchUsersResult(pub Vec<PublicUserOther>);
+
     impl Handler<SearchUsers> for UserManager {
-        type Result = Option<Vec<PublicUserOther>>;
+        type Result = SearchUsersResult;
         fn handle(&mut self, msg: SearchUsers, _ctx: &mut Self::Context) -> Self::Result {
-            Some(self.db.users.query(&msg.query, &self.db))
+            SearchUsersResult(
+                self.db
+                    .users
+                    .get_session_token(msg.session_token.clone(), &self.db.friendships)
+                    .map(|requesting_user| {
+                        self.db
+                            .users
+                            .query(&msg.query)
+                            .into_iter()
+                            .filter_map(|user| requesting_user.get_public_user_other(user))
+                            .collect()
+                    })
+                    .unwrap_or(Vec::new()),
+            )
         }
     }
 
@@ -241,7 +258,10 @@ pub mod msg {
         }
     }
 
-    pub struct GetUserOther(pub UserId);
+    pub struct GetUserOther {
+        pub session_token: SessionToken,
+        pub user_id: UserId,
+    }
     impl Message for GetUserOther {
         type Result = Option<PublicUserOther>;
     }
@@ -249,7 +269,15 @@ pub mod msg {
     impl Handler<GetUserOther> for UserManager {
         type Result = Option<PublicUserOther>;
         fn handle(&mut self, msg: GetUserOther, _ctx: &mut Self::Context) -> Self::Result {
-            self.db.users.get_id_public(&msg.0)
+            self.db
+                .users
+                .get_session_token(msg.session_token.clone(), &self.db.friendships)
+                .and_then(|requesting_user| {
+                    self.db
+                        .users
+                        .get_id_other(&msg.user_id)
+                        .and_then(|user| requesting_user.get_public_user_other(user))
+                })
         }
     }
 
