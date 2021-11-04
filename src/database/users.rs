@@ -1,12 +1,14 @@
 use actix::Addr;
 use dashmap::DashMap;
+use futures::future::OptionFuture;
 use mongodb::{
     bson::{self, doc},
-    sync::Collection,
+    Collection,
 };
 use serde::{Deserialize, Serialize};
+use tokio::stream::StreamExt;
 
-use super::{deserialize_vec, friendships::FriendshipCollection};
+use super::friendships::FriendshipCollection;
 use crate::{
     api::users::{
         session_token::SessionToken,
@@ -17,24 +19,24 @@ use crate::{
 };
 
 pub struct UserCollection {
-    pub collection: Collection,
+    pub collection: Collection<DbUser>,
     playing_users_cache: DashMap<UserId, Addr<ClientState>>,
 }
 
 impl UserCollection {
-    pub fn new(collection: Collection) -> Self {
+    pub fn new(collection: Collection<DbUser>) -> Self {
         UserCollection {
             collection,
             playing_users_cache: DashMap::new(),
         }
     }
 
-    fn get_auth(
+    async fn get_auth(
         &self,
         auth: UserAuth,
         friendships: &FriendshipCollection,
     ) -> Option<BackendUserMe> {
-        if let Some(user) = self.get_username(&auth.username, friendships) {
+        if let Some(user) = self.get_username(&auth.username, friendships).await {
             if user.password.matches(&auth.password) {
                 return Some(user);
             }
@@ -42,27 +44,28 @@ impl UserCollection {
         None
     }
 
-    pub fn get_session_token(
+    pub async fn get_session_token(
         &self,
         session_token: SessionToken,
         friendships: &FriendshipCollection,
     ) -> Option<BackendUserMe> {
-        self.collection
+        let user: OptionFuture<_> = self
+            .collection
             .find_one(doc! {"session_tokens": session_token.to_string() }, None)
+            .await
             .ok()
             .flatten()
-            .and_then(|doc| {
-                super::deserialize::<DbUser>(doc.into())
-                    .map(|user| user.to_backend_user(&self, friendships))
-            })
+            .map(|user| user.to_backend_user(&self, friendships))
+            .into();
+        user.await
     }
 
-    pub fn create_session_token(
+    pub async fn create_session_token(
         &self,
         auth: UserAuth,
         friendships: &FriendshipCollection,
     ) -> Option<SessionToken> {
-        if let Some(user) = self.get_auth(auth, friendships) {
+        if let Some(user) = self.get_auth(auth, friendships).await {
             let session_token = SessionToken::new();
             return self
                 .collection
@@ -71,13 +74,14 @@ impl UserCollection {
                     doc! { "$push": { "session_tokens": session_token.to_string() } },
                     None,
                 )
+                .await
                 .map(|_| session_token)
                 .ok();
         }
         None
     }
 
-    pub fn remove_session_token(&self, session_token: SessionToken) -> Result<(), ()> {
+    pub async fn remove_session_token(&self, session_token: SessionToken) -> Result<(), ()> {
         let session_token_str = session_token.to_string();
         self.collection
             .update_one(
@@ -85,81 +89,91 @@ impl UserCollection {
                 doc! { "$pull": { "session_tokens": session_token_str } },
                 None,
             )
+            .await
             .map(|_| ())
             .map_err(|_| ())
     }
 
-    pub fn get_username(
+    pub async fn get_username(
         &self,
         username: &str,
         friendships: &FriendshipCollection,
     ) -> Option<BackendUserMe> {
-        self.collection
+        let user: OptionFuture<_> = self
+            .collection
             .find_one(doc! { "username": username }, None)
+            .await
             .ok()
             .flatten()
-            .and_then(|doc| {
-                super::deserialize::<DbUser>(doc.into())
-                    .map(|user| user.to_backend_user(&self, friendships))
-            })
+            .map(|user| user.to_backend_user(&self, friendships))
+            .into();
+        user.await
     }
 
-    pub fn get_id(&self, id: &UserId, friendships: &FriendshipCollection) -> Option<BackendUserMe> {
+    pub async fn get_id(
+        &self,
+        id: &UserId,
+        friendships: &FriendshipCollection,
+    ) -> Option<BackendUserMe> {
+        let user: OptionFuture<_> = self
+            .collection
+            .find_one(doc! {"_id": id.to_string()}, None)
+            .await
+            .ok()
+            .flatten()
+            .map(|user| user.to_backend_user(&self, friendships))
+            .into();
+        user.await
+    }
+
+    pub async fn get_id_public(&self, id: &UserId) -> Option<PublicUserOther> {
         self.collection
             .find_one(doc! {"_id": id.to_string()}, None)
+            .await
             .ok()
             .flatten()
-            .and_then(|doc| {
-                super::deserialize::<DbUser>(doc)
-                    .map(|user| user.to_backend_user(&self, friendships))
-            })
-    }
-
-    pub fn get_id_public(&self, id: &UserId) -> Option<PublicUserOther> {
-        self.collection
-            .find_one(doc! {"_id": id.to_string()}, None)
-            .ok()
-            .flatten()
-            .and_then(|doc| {
-                super::deserialize::<DbUser>(doc).map(|user| PublicUserOther {
-                    id: user.id,
-                    username: user.username,
-                    game_info: user.game_info,
-                    playing: self.playing_users_cache.contains_key(&user.id),
-                })
-            })
-    }
-
-    pub fn query(&self, query: &str) -> Vec<PublicUserOther> {
-        let query = query.to_lowercase();
-
-        // println!("query: {} -> {:?}", query, x);
-        self.collection
-            .find(doc! {"username": {"$regex": &query}}, None)
-            .ok()
-            .map(|cursor| deserialize_vec::<DbUser>(cursor))
-            .unwrap_or(Vec::new())
-            .into_iter()
             .map(|user| PublicUserOther {
                 id: user.id,
                 username: user.username,
                 game_info: user.game_info,
-
                 playing: self.playing_users_cache.contains_key(&user.id),
             })
-            .collect()
     }
 
-    pub fn insert(&self, user: BackendUserMe) -> bool {
+    pub async fn query(&self, query: &str) -> Vec<PublicUserOther> {
+        let query = query.to_lowercase();
+
+        // println!("query: {} -> {:?}", query, x);
+        let users: OptionFuture<_> = self
+            .collection
+            .find(doc! {"username": {"$regex": &query}}, None)
+            .await
+            .map(|cursor| {
+                cursor
+                    .map(|result| {
+                        result.map(|user| PublicUserOther {
+                            id: user.id,
+                            username: user.username,
+                            game_info: user.game_info,
+
+                            playing: self.playing_users_cache.contains_key(&user.id),
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .ok()
+            .into();
+        users.await.map(|r| r.ok()).flatten().unwrap_or(Vec::new())
+    }
+
+    pub async fn insert(&self, user: BackendUserMe) -> bool {
         self.collection
-            .insert_one(
-                bson::to_document(&DbUser::from_backend_user(user)).unwrap(),
-                None,
-            )
+            .insert_one(DbUser::from_backend_user(user), None)
+            .await
             .is_ok()
     }
 
-    pub fn update(&self, user: BackendUserMe) -> bool {
+    pub async fn update(&self, user: BackendUserMe) -> bool {
         if let Some(playing_addr) = &user.playing {
             self.playing_users_cache
                 .insert(user.id.clone(), playing_addr.clone());
@@ -173,6 +187,7 @@ impl UserCollection {
                 doc! { "$set": bson::to_document(&DbUser::from_backend_user(user.clone())).unwrap() },
                 None,
             )
+            .await
             .is_ok()
     }
 }
@@ -205,7 +220,7 @@ impl DbUser {
             session_tokens: vec![],
         }
     }
-    fn to_backend_user(
+    async fn to_backend_user(
         self,
         users: &UserCollection,
         friendships: &FriendshipCollection,
@@ -217,7 +232,7 @@ impl DbUser {
             email: self.email,
             game_info: self.game_info,
             playing: users.playing_users_cache.get(&self.id).map(|p| p.clone()),
-            friendships: friendships.get_for(self.id),
+            friendships: friendships.get_for(self.id).await,
         }
     }
 }

@@ -1,19 +1,17 @@
-use mongodb::{bson, sync::Collection};
+use mongodb::Collection;
 
 use crate::api::users::user::PlayedGameInfo;
 
 pub struct GameCollection {
-    collection: Collection,
+    collection: Collection<PlayedGameInfo>,
 }
 
 impl GameCollection {
-    pub fn new(collection: Collection) -> Self {
+    pub fn new(collection: Collection<PlayedGameInfo>) -> Self {
         GameCollection { collection }
     }
 
-    pub fn insert(&self, game: PlayedGameInfo) -> bool {
-        self.collection
-            .insert_one(bson::to_document(&game).unwrap(), None)
-            .is_ok()
+    pub async fn insert(&self, game: PlayedGameInfo) -> bool {
+        self.collection.insert_one(game, None).await.is_ok()
     }
 }

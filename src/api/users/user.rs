@@ -276,7 +276,7 @@ impl UserGameInfo {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct PlayedGameInfo {
     pub winner: UserId,
     pub loser: UserId,

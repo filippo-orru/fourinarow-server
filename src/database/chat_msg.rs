@@ -1,18 +1,17 @@
 use std::time::SystemTime;
 
 use mongodb::{
-    bson::{self, doc},
+    bson::{self, *},
     options::FindOptions,
-    sync::Collection,
+    Collection,
 };
 use serde::{Deserialize, Serialize};
 
-use super::deserialize_vec;
 use crate::api::chat::{PostedChatMsg, PublicChatMsg};
 use crate::api::users::user::UserId;
 
 pub struct ChatMsgCollection {
-    pub collection: Collection,
+    pub collection: Collection<DbChatMsg>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -25,11 +24,11 @@ struct DbChatMsg {
 }
 
 impl ChatMsgCollection {
-    pub fn new(collection: Collection) -> Self {
+    pub fn new(collection: Collection<DbChatMsg>) -> Self {
         ChatMsgCollection { collection }
     }
 
-    pub fn get_messages_in_thread(
+    pub async fn get_messages_in_thread(
         &self,
         thread_id: String,
         maybe_before_id: Option<u64>,
@@ -44,7 +43,7 @@ impl ChatMsgCollection {
         options.sort = Some(doc! { "id": -1 });
         self.collection
             .find(doc, Some(options))
-            .map(|cursor| deserialize_vec::<DbChatMsg>(cursor))
+            .await
             .map(|db_msgs| {
                 db_msgs
                     .into_iter()

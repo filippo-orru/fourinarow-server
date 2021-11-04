@@ -4,7 +4,8 @@ use crate::game::client_adapter::ClientAdapterMsg;
 use crate::game::lobby_mgr::{self, LobbyManager};
 use crate::game::msg::*;
 
-use actix::*;
+use actix::prelude::*;
+use futures::FutureExt;
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -23,6 +24,7 @@ impl UserManager {
     }
 }
 
+#[derive(Clone)]
 enum BacklinkState {
     Waiting,
     Linked(Addr<LobbyManager>),
@@ -51,35 +53,41 @@ pub mod msg {
         type Result = Result<SessionToken, ApiError>;
     }
     impl Handler<Register> for UserManager {
-        type Result = Result<SessionToken, ApiError>;
+        type Result = ResponseActFuture<Self, Result<SessionToken, ApiError>>;
 
-        fn handle(&mut self, msg: Register, _ctx: &mut Self::Context) -> Self::Result {
+        fn handle(&mut self, msg: Register, ctx: &mut Self::Context) -> Self::Result {
             let auth = msg.0;
-            if !BackendUserMe::check_password(&auth.password) {
-                Err(ApiError::PasswordInsufficient)
-            } else if self
-                .db
-                .users
-                .get_username(&auth.username, &self.db.friendships)
-                .is_some()
-            {
-                Err(ApiError::UsernameInUse)
-            } else {
-                let mut user = BackendUserMe::new(auth.username.clone(), auth.password.clone());
-                while self
-                    .db
-                    .users
-                    .get_id(&user.id, &self.db.friendships)
-                    .is_some()
-                {
-                    user.gen_new_id();
+            let db = self.db.clone();
+
+            Box::pin(
+                async {
+                    let username_is_in_use = db
+                        .users
+                        .get_username(&auth.username, &db.friendships)
+                        .await
+                        .is_some();
+
+                    if !BackendUserMe::check_password(&auth.password) {
+                        Err(ApiError::PasswordInsufficient)
+                    } else if username_is_in_use {
+                        Err(ApiError::UsernameInUse)
+                    } else {
+                        let mut user =
+                            BackendUserMe::new(auth.username.clone(), auth.password.clone());
+                        while db.users.get_id(&user.id, &db.friendships).await.is_some() {
+                            user.gen_new_id();
+                        }
+                        db.users.insert(user.clone());
+                        db.users
+                            .create_session_token(auth, &db.friendships)
+                            .await
+                            .ok_or(ApiError::IncorrectCredentials)
+                    }
                 }
-                self.db.users.insert(user.clone());
-                self.db
-                    .users
-                    .create_session_token(auth, &self.db.friendships)
-                    .ok_or(ApiError::IncorrectCredentials)
-            }
+                .into_actor(self),
+            )
+            //.map(|res, _, _| res)
+            //.boxed_local(ctx)
         }
     }
     pub struct Login(pub UserAuth);
@@ -87,13 +95,19 @@ pub mod msg {
         type Result = Result<SessionToken, ApiError>;
     }
     impl Handler<Login> for UserManager {
-        type Result = Result<SessionToken, ApiError>;
+        type Result = ResponseActFuture<Self, Result<SessionToken, ApiError>>;
 
         fn handle(&mut self, msg: Login, _ctx: &mut Self::Context) -> Self::Result {
-            self.db
-                .users
-                .create_session_token(msg.0, &self.db.friendships)
-                .ok_or(ApiError::IncorrectCredentials)
+            let db = self.db.clone();
+            Box::pin(
+                async {
+                    db.users
+                        .create_session_token(msg.0, &db.friendships)
+                        .await
+                        .ok_or(ApiError::IncorrectCredentials)
+                }
+                .into_actor(self),
+            )
         }
     }
 
@@ -102,13 +116,19 @@ pub mod msg {
         type Result = Result<(), ApiError>;
     }
     impl Handler<Logout> for UserManager {
-        type Result = Result<(), ApiError>;
+        type Result = ResponseActFuture<Self, Result<(), ApiError>>;
 
         fn handle(&mut self, msg: Logout, _ctx: &mut Self::Context) -> Self::Result {
-            self.db
-                .users
-                .remove_session_token(msg.0)
-                .map_err(|_| ApiError::InternalServerError)
+            let db = self.db.clone();
+            Box::pin(
+                async {
+                    db.users
+                        .remove_session_token(msg.0)
+                        .await
+                        .map_err(|_| ApiError::InternalServerError)
+                }
+                .into_actor(self),
+            )
         }
     }
 
@@ -120,24 +140,30 @@ pub mod msg {
         type Result = Result<PublicUserMe, SrvMsgError>;
     }
     impl Handler<StartPlaying> for UserManager {
-        type Result = Result<PublicUserMe, SrvMsgError>;
+        type Result = ResponseActFuture<Self, Result<PublicUserMe, SrvMsgError>>;
         fn handle(&mut self, msg: StartPlaying, _ctx: &mut Self::Context) -> Self::Result {
-            if let Some(user) = self
-                .db
-                .users
-                .get_session_token(msg.session_token, &self.db.friendships)
-            {
-                let mut user = user;
-                if let Some(client_adapter) = user.playing {
-                    // Cancel current connection
-                    client_adapter.do_send(ClientAdapterMsg::Close);
+            let db = self.db.clone();
+            Box::pin(
+                async {
+                    if let Some(user) = db
+                        .users
+                        .get_session_token(msg.session_token, &db.friendships)
+                        .await
+                    {
+                        let mut user = user;
+                        if let Some(client_adapter) = user.playing {
+                            // Cancel current connection
+                            client_adapter.do_send(ClientAdapterMsg::Close);
+                        }
+                        user.playing = Some(msg.addr);
+                        db.users.update(user.clone()).await;
+                        Ok(user.to_public_user_me(&db))
+                    } else {
+                        Err(SrvMsgError::IncorrectCredentials)
+                    }
                 }
-                user.playing = Some(msg.addr);
-                self.db.users.update(user.clone());
-                Ok(user.to_public_user_me(&self.db))
-            } else {
-                Err(SrvMsgError::IncorrectCredentials)
-            }
+                .into_actor(self),
+            )
         }
     }
 
@@ -155,61 +181,72 @@ pub mod msg {
         type Result = ();
     }
     impl Handler<IntUserMgrMsg> for UserManager {
-        type Result = ();
+        type Result = ResponseActFuture<Self, ()>;
         fn handle(&mut self, msg: IntUserMgrMsg, _ctx: &mut Self::Context) -> Self::Result {
-            use GameMsg::*;
-            use IntUserMgrMsg::*;
-            match msg {
-                Backlink(lobby_mgr) => self.lobby_mgr_state = BacklinkState::Linked(lobby_mgr),
-                Game(game_msg) => match game_msg {
-                    PlayedGame(game_info) => {
-                        let mut found = false;
-                        if let Some(mut winner) = self
-                            .db
-                            .users
-                            .get_id(&game_info.winner, &self.db.friendships)
-                        {
-                            winner.game_info.skill_rating += SR_PER_WIN;
-                            self.db.users.update(winner);
-                            found = true;
+            let db = self.db.clone();
+            Box::pin(
+                async {
+                    use GameMsg::*;
+                    use IntUserMgrMsg::*;
+                    let mut lobby_mgr_state: Option<BacklinkState> = None;
+                    match msg {
+                        Backlink(lobby_mgr) => {
+                            lobby_mgr_state = Some(BacklinkState::Linked(lobby_mgr))
                         }
-                        if let Some(mut loser) =
-                            self.db.users.get_id(&game_info.loser, &self.db.friendships)
-                        {
-                            if found {
-                                loser.game_info.skill_rating -= SR_PER_WIN;
-                                self.db.users.update(loser);
-                                self.db.games.insert(game_info);
+                        Game(game_msg) => match game_msg {
+                            PlayedGame(game_info) => {
+                                let mut found = false;
+                                if let Some(mut winner) =
+                                    db.users.get_id(&game_info.winner, &db.friendships).await
+                                {
+                                    winner.game_info.skill_rating += SR_PER_WIN;
+                                    db.users.update(winner).await;
+                                    found = true;
+                                }
+                                if let Some(mut loser) =
+                                    db.users.get_id(&game_info.loser, &db.friendships).await
+                                {
+                                    if found {
+                                        loser.game_info.skill_rating -= SR_PER_WIN;
+                                        db.users.update(loser).await;
+                                        db.games.insert(game_info).await;
+                                    }
+                                } else if found {
+                                    if let Some(mut winner) =
+                                        db.users.get_id(&game_info.winner, &db.friendships).await
+                                    {
+                                        winner.game_info.skill_rating -= SR_PER_WIN;
+                                        db.users.update(winner).await;
+                                    }
+                                }
                             }
-                        } else if found {
-                            if let Some(mut winner) = self
-                                .db
-                                .users
-                                .get_id(&game_info.winner, &self.db.friendships)
-                            {
-                                winner.game_info.skill_rating -= SR_PER_WIN;
-                                self.db.users.update(winner);
+                        },
+                        // StartPlaying(id) => {
+                        //     if let Some(user) = db.users.get_mut(&id) {
+                        //         user.playing = false;
+                        //     }
+                        // }
+                        StopPlaying(id, addr) => {
+                            if let Some(mut user) = db.users.get_id(&id, &db.friendships).await {
+                                if let Some(playing_addr) = user.playing {
+                                    if playing_addr == addr {
+                                        // Only reset the address if the requesting ClientAdapter is still linked (might have been replaced already)
+                                        user.playing = None;
+                                        db.users.update(user).await;
+                                    }
+                                }
                             }
                         }
                     }
-                },
-                // StartPlaying(id) => {
-                //     if let Some(user) = self.users.get_mut(&id) {
-                //         user.playing = false;
-                //     }
-                // }
-                StopPlaying(id, addr) => {
-                    if let Some(mut user) = self.db.users.get_id(&id, &self.db.friendships) {
-                        if let Some(playing_addr) = user.playing {
-                            if playing_addr == addr {
-                                // Only reset the address if the requesting ClientAdapter is still linked (might have been replaced already)
-                                user.playing = None;
-                                self.db.users.update(user);
-                            }
-                        }
-                    }
+                    lobby_mgr_state
                 }
-            }
+                .into_actor(self)
+                .map(|maybe_lobby_mgr_state, act, _| {
+                    if let Some(state) = maybe_lobby_mgr_state {
+                        act.lobby_mgr_state = state;
+                    }
+                }),
+            )
         }
     }
 
@@ -217,13 +254,15 @@ pub mod msg {
         pub query: String,
     }
     impl Message for SearchUsers {
-        type Result = Option<Vec<PublicUserOther>>;
+        type Result = Result<Vec<PublicUserOther>, ()>;
     }
 
     impl Handler<SearchUsers> for UserManager {
-        type Result = Option<Vec<PublicUserOther>>;
+        type Result = ResponseActFuture<Self, Result<Vec<PublicUserOther>, ()>>;
+
         fn handle(&mut self, msg: SearchUsers, _ctx: &mut Self::Context) -> Self::Result {
-            Some(self.db.users.query(&msg.query))
+            let db = self.db.clone();
+            Box::pin(async { Ok(db.users.query(&msg.query).await) }.into_actor(self))
         }
     }
 
@@ -233,14 +272,18 @@ pub mod msg {
     }
 
     impl Handler<GetUserMe> for UserManager {
-        type Result = Option<PublicUserMe>;
+        type Result = ResponseActFuture<Self, Option<PublicUserMe>>;
         fn handle(&mut self, msg: GetUserMe, _ctx: &mut Self::Context) -> Self::Result {
-            // Some(
-            //)  || panic!("GetUserMe: could not get by sessionT"),
-            self.db
-                .users
-                .get_session_token(msg.0, &self.db.friendships)
-                .map(|user| user.to_public_user_me(&self.db))
+            let db = self.db.clone();
+            Box::pin(
+                async {
+                    db.users
+                        .get_session_token(msg.0, &db.friendships)
+                        .await
+                        .map(|user| user.to_public_user_me(&db))
+                }
+                .into_actor(self),
+            )
         }
     }
 
@@ -250,9 +293,10 @@ pub mod msg {
     }
 
     impl Handler<GetUserOther> for UserManager {
-        type Result = Option<PublicUserOther>;
+        type Result = ResponseActFuture<Self, Option<PublicUserOther>>;
         fn handle(&mut self, msg: GetUserOther, _ctx: &mut Self::Context) -> Self::Result {
-            self.db.users.get_id_public(&msg.0)
+            let db = self.db.clone();
+            Box::pin(async { db.users.get_id_public(&msg.0).await }.into_actor(self))
         }
     }
 
@@ -271,62 +315,76 @@ pub mod msg {
         type Result = bool;
     }
     impl Handler<UserAction> for UserManager {
-        type Result = bool;
+        type Result = ResponseActFuture<Self, bool>;
         fn handle(&mut self, msg: UserAction, _ctx: &mut Self::Context) -> Self::Result {
-            if let Some(user_me) = self
-                .db
-                .users
-                .get_session_token(msg.session_token, &self.db.friendships)
-            {
-                match msg.action {
-                    Action::FriendsAction(friends_action) => {
-                        use FriendsAction::*;
-                        match friends_action {
-                            Request(other_id) => {
-                                // If not trying to add myself && isn't already friend
-                                if user_me.id != other_id
-                                    && !user_me
-                                        .friendships
-                                        .friends()
-                                        .any(|f| f.other_id == other_id)
-                                {
-                                    if user_me.friendships.iter().any(|req| {
-                                        req.state == BackendFriendshipState::ReqIncoming
-                                            && req.other_id == other_id
-                                    }) {
-                                        // User has incoming friend request from other user -> accept request
-                                        let chat_thread_id = ChatThreadId::new();
-                                        self.db.friendships.upgrade_to_friends(
-                                            user_me.id,
-                                            other_id,
-                                            chat_thread_id,
-                                        )
-                                    } else if user_me.friendships.iter().any(|req| {
-                                        req.state == BackendFriendshipState::ReqOutgoing
-                                            && req.other_id == other_id
-                                    }) {
-                                        // User has already sent a request to this user.
-                                        false
-                                    } else {
-                                        self.db.friendships.insert(user_me.id, other_id)
+            let db = self.db.clone();
+            Box::pin(
+                async {
+                    if let Some(user_me) = db
+                        .users
+                        .get_session_token(msg.session_token, &db.friendships)
+                        .await
+                    {
+                        match msg.action {
+                            Action::FriendsAction(friends_action) => {
+                                use FriendsAction::*;
+                                match friends_action {
+                                    Request(other_id) => {
+                                        // If not trying to add myself && isn't already friend
+                                        if user_me.id != other_id
+                                            && !user_me
+                                                .friendships
+                                                .friends()
+                                                .any(|f| f.other_id == other_id)
+                                        {
+                                            if user_me.friendships.iter().any(|req| {
+                                                req.state == BackendFriendshipState::ReqIncoming
+                                                    && req.other_id == other_id
+                                            }) {
+                                                // User has incoming friend request from other user -> accept request
+                                                let chat_thread_id = ChatThreadId::new();
+                                                db.friendships
+                                                    .upgrade_to_friends(
+                                                        user_me.id,
+                                                        other_id,
+                                                        chat_thread_id,
+                                                    )
+                                                    .await
+                                            } else if user_me.friendships.iter().any(|req| {
+                                                req.state == BackendFriendshipState::ReqOutgoing
+                                                    && req.other_id == other_id
+                                            }) {
+                                                // User has already sent a request to this user.
+                                                false
+                                            } else {
+                                                db.friendships.insert(user_me.id, other_id).await
+                                            }
+                                        } else {
+                                            false
+                                        }
                                     }
-                                } else {
-                                    false
-                                }
-                            }
-                            Delete(other_id) => {
-                                if user_me.friendships.iter().any(|fr| fr.other_id == other_id) {
-                                    self.db.friendships.remove(user_me.id, other_id.clone())
-                                } else {
-                                    false
+                                    Delete(other_id) => {
+                                        if user_me
+                                            .friendships
+                                            .iter()
+                                            .any(|fr| fr.other_id == other_id)
+                                        {
+                                            db.friendships
+                                                .remove(user_me.id, other_id.clone())
+                                                .await
+                                        } else {
+                                            false
+                                        }
+                                    }
                                 }
                             }
                         }
+                    } else {
+                        false
                     }
                 }
-            } else {
-                false
-            }
+                .into_actor(self),
+            )
         }
     }
 
@@ -339,35 +397,41 @@ pub mod msg {
         type Result = ();
     }
     impl Handler<BattleReq> for UserManager {
-        type Result = ();
-        fn handle(&mut self, msg: BattleReq, _ctx: &mut Self::Context) {
-            if let BacklinkState::Linked(lobby_mgr) = &self.lobby_mgr_state {
-                // println!("user_mgr: got battlereq");
-                if let Some(receiver) = self
-                    .db
-                    .users
-                    .get_id(&msg.receiver_uid, &self.db.friendships)
-                {
-                    if let Some(receiver_addr) = &receiver.playing {
-                        lobby_mgr.do_send(lobby_mgr::BattleReq {
-                            sender_addr: msg.sender_addr,
-                            sender_uid: msg.sender_uid,
-                            receiver_addr: receiver_addr.clone(),
-                            receiver_uid: msg.receiver_uid,
-                        });
+        type Result = ResponseActFuture<Self, ()>;
+        fn handle(&mut self, msg: BattleReq, _ctx: &mut Self::Context) -> Self::Result {
+            let db = self.db.clone();
+            let lobby_mgr = self.lobby_mgr_state.clone();
+
+            Box::pin(
+                async {
+                    if let BacklinkState::Linked(lobby_mgr) = &lobby_mgr {
+                        if let Some(receiver) =
+                            db.users.get_id(&msg.receiver_uid, &db.friendships).await
+                        {
+                            if let Some(receiver_addr) = &receiver.playing {
+                                lobby_mgr.do_send(lobby_mgr::BattleReq {
+                                    sender_addr: msg.sender_addr,
+                                    sender_uid: msg.sender_uid,
+                                    receiver_addr: receiver_addr.clone(),
+                                    receiver_uid: msg.receiver_uid,
+                                });
+                            } else {
+                                msg.sender_addr.do_send(ServerMessage::Error(Some(
+                                    SrvMsgError::UserNotPlaying,
+                                )));
+                            }
+                        } else {
+                            // println!("no such user: {}", msg.receiver);
+                            msg.sender_addr
+                                .do_send(ServerMessage::Error(Some(SrvMsgError::NoSuchUser)));
+                        }
                     } else {
                         msg.sender_addr
-                            .do_send(ServerMessage::Error(Some(SrvMsgError::UserNotPlaying)));
+                            .do_send(ServerMessage::Error(Some(SrvMsgError::Internal)));
                     }
-                } else {
-                    // println!("no such user: {}", msg.receiver);
-                    msg.sender_addr
-                        .do_send(ServerMessage::Error(Some(SrvMsgError::NoSuchUser)));
                 }
-            } else {
-                msg.sender_addr
-                    .do_send(ServerMessage::Error(Some(SrvMsgError::Internal)));
-            }
+                .into_actor(self),
+            )
         }
     }
 }

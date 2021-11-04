@@ -9,16 +9,16 @@ edition = "2018"
 [dependencies]
 actix-rt = "1.1"
 actix = "0.10"
-actix-web = {version = "3.2", features = ["rustls"] }
+actix-web = { version = "3.3.2", features = ["rustls"] }
 actix-web-actors = "3.0"
 actix-files = "0.4"
 actix-service = "1.0"
 actix-cors = "0.5"
-tokio = "0.3"
-async-std = "1.7"
+tokio = { version = "0.3", features = ["stream", "macros"] }
+tokio-async-std = "1.5.3"
 futures = "0.3"
 
-mongodb = {version = "1.1.1", default-features = false, features = ["sync"] }
+mongodb = { version = "1.2.3", features = ["tokio-runtime"] }
 base64 = "0.13"
 serde = "*"
 serde_json = "*"
@@ -33,3 +33,6 @@ dotenv = "0.15.0"
 
 # remove when bitvec fixes their shit:  https://github.com/bitvecto-rs/bitvec/issues/105
 funty = "=1.1.0"
+
+[profile.release]
+debug = true
