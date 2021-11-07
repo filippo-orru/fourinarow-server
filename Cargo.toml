@@ -33,5 +33,5 @@ dotenv = "0.15.0"
 # remove when bitvec fixes their shit:  https://github.com/bitvecto-rs/bitvec/issues/105
 funty = "=1.1.0"
 
-[profile.release]
-debug = true
+# [profile.release]
+# debug = true
