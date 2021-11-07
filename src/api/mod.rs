@@ -2,7 +2,7 @@ pub mod chat;
 mod feedback;
 pub mod users;
 
-use actix_web::{web, HttpRequest, HttpResponse};
+use actix_web::{dev::HttpResponseBuilder, web, HttpRequest, HttpResponse};
 use serde::Serialize;
 use HttpResponse as HR;
 
@@ -36,7 +36,7 @@ impl ApiResponse<()> {
     pub fn from(err: ApiError) -> HttpResponse {
         let prefix = String::from("Error: ");
 
-        let (http_response, description) = match err {
+        let (http_response, description): (fn() -> HttpResponseBuilder, &str) = match err {
             ApiError::PasswordInsufficient => (HR::BadRequest, "insufficient password"),
             ApiError::EmailInUse => (HR::BadRequest, "email in use"),
             ApiError::UsernameInUse => (HR::BadRequest, "username in use"),
@@ -46,9 +46,9 @@ impl ApiResponse<()> {
             ),
 
             ApiError::AlreadyPlaying => (HR::BadRequest, "user is already playing"),
-            ApiError::MissingSessionToken => (HR::BadRequest, "missing header session_token"),
-            ApiError::IncorrectCredentials => (HR::BadRequest, "the credentials are incorrect"),
-            ApiError::InternalServerError => (HR::BadRequest, "internal server error"),
+            ApiError::MissingSessionToken => (HR::Unauthorized, "missing header session_token"),
+            ApiError::IncorrectCredentials => (HR::Forbidden, "the credentials are incorrect"),
+            ApiError::InternalServerError => (HR::InternalServerError, "internal server error"),
         };
         http_response().json(ApiResponse::new(prefix + description))
     }

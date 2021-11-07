@@ -90,7 +90,7 @@ async fn search_user(
             .await;
         match user_res {
             Ok(Some(users)) => HR::Ok().json(users),
-            _ => HR::InternalServerError().json(ApiResponse::new("Failed to query users")),
+            _ => ApiResponse::from(ApiError::InternalServerError),
         }
     }
 }
@@ -104,23 +104,18 @@ async fn get_user(
         .await;
     match user_res {
         Ok(Some(user)) => HR::Ok().json(user),
-        _ => HR::InternalServerError().json(ApiResponse::new("Failed to get user")),
+        _ => ApiResponse::from(ApiError::InternalServerError),
     }
 }
 
 async fn me(req: HttpRequest, user_mgr: web::Data<Addr<user_mgr::UserManager>>) -> HR {
-    if let Some(session_token) = get_session_token(&req) {
-        let user_res: Result<Option<user::PublicUserMe>, MailboxError> =
-            user_mgr.send(user_mgr::msg::GetUserMe(session_token)).await;
-        match user_res {
+    match get_session_token(&req) {
+        Some(session_token) => match user_mgr.send(user_mgr::msg::GetUserMe(session_token)).await {
             Ok(Some(user)) => HR::Ok().json(user),
-            Ok(None) => HR::Forbidden().json(ApiResponse::new(
-                "Could not find user. Invalid credentials.",
-            )),
-            Err(_) => HR::InternalServerError().json(ApiResponse::new("Failed to retrieve user")),
-        }
-    } else {
-        HR::Unauthorized().json(ApiResponse::new("Missing session_token"))
+            Ok(None) => ApiResponse::from(ApiError::IncorrectCredentials),
+            Err(_) => ApiResponse::from(ApiError::InternalServerError),
+        },
+        None => ApiResponse::from(ApiError::MissingSessionToken),
     }
 }
 
@@ -137,29 +132,6 @@ mod friends {
             .route("", web::post().to(friends::post))
             .route("/{id}", web::delete().to(friends::delete));
     }
-
-    /*pub async fn get(
-        user_mgr: web::Data<Addr<user_mgr::UserManager>>,
-        auth: web::Form<user_mgr::UserAuth>,
-    ) -> HR {
-        let user_res: Result<bool, MailboxError> = user_mgr
-            .send(UserAction {
-                action: Action::FriendsAction(action),
-                auth,
-            })
-            .await;
-        if let Ok(b) = user_res {
-            if b {
-                HR::Ok().into()
-            } else {
-                HR::Forbidden().json(ApiResponse::new(
-                    "Could not find user or invalid credentials.",
-                ))
-            }
-        } else {
-            HR::InternalServerError().json(ApiResponse::new("Failed to retrieve user"))
-        }
-    }*/
 
     pub async fn post(
         req: HttpRequest,
@@ -182,26 +154,21 @@ mod friends {
         action: FriendsAction,
         user_mgr: &Addr<user_mgr::UserManager>,
     ) -> HR {
-        if let Some(session_token) = get_session_token(&req) {
-            let user_res: Result<bool, MailboxError> = user_mgr
-                .send(UserAction {
-                    action: Action::FriendsAction(action),
-                    session_token,
-                })
-                .await;
-            if let Ok(b) = user_res {
-                if b {
-                    HR::Ok().into()
-                } else {
-                    HR::Forbidden().json(ApiResponse::new(
-                        "Could not find user or invalid credentials.",
-                    ))
+        match get_session_token(&req) {
+            Some(session_token) => {
+                match user_mgr
+                    .send(UserAction {
+                        action: Action::FriendsAction(action),
+                        session_token,
+                    })
+                    .await
+                {
+                    Ok(true) => HR::Ok().into(),
+                    Ok(false) => ApiResponse::from(ApiError::IncorrectCredentials),
+                    Err(_) => ApiResponse::from(ApiError::InternalServerError),
                 }
-            } else {
-                HR::InternalServerError().json(ApiResponse::new("Failed to retrieve user"))
             }
-        } else {
-            HR::Unauthorized().json(ApiResponse::new("Missing session_token"))
+            None => ApiResponse::from(ApiError::MissingSessionToken),
         }
     }
 }
