@@ -5,7 +5,6 @@ use crate::game::lobby_mgr::{self, LobbyManager};
 use crate::game::msg::*;
 
 use actix::prelude::*;
-use futures::FutureExt;
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -42,6 +41,8 @@ pub struct UserAuth {
 
 pub mod msg {
 
+    use futures::future::OptionFuture;
+
     use super::*;
     use crate::{
         api::users::session_token::SessionToken,
@@ -55,12 +56,12 @@ pub mod msg {
     impl Handler<Register> for UserManager {
         type Result = ResponseActFuture<Self, Result<SessionToken, ApiError>>;
 
-        fn handle(&mut self, msg: Register, ctx: &mut Self::Context) -> Self::Result {
+        fn handle(&mut self, msg: Register, _ctx: &mut Self::Context) -> Self::Result {
             let auth = msg.0;
             let db = self.db.clone();
 
             Box::pin(
-                async {
+                async move {
                     let username_is_in_use = db
                         .users
                         .get_username(&auth.username, &db.friendships)
@@ -77,7 +78,7 @@ pub mod msg {
                         while db.users.get_id(&user.id, &db.friendships).await.is_some() {
                             user.gen_new_id();
                         }
-                        db.users.insert(user.clone());
+                        db.users.insert(user.clone()).await;
                         db.users
                             .create_session_token(auth, &db.friendships)
                             .await
@@ -100,7 +101,7 @@ pub mod msg {
         fn handle(&mut self, msg: Login, _ctx: &mut Self::Context) -> Self::Result {
             let db = self.db.clone();
             Box::pin(
-                async {
+                async move {
                     db.users
                         .create_session_token(msg.0, &db.friendships)
                         .await
@@ -121,7 +122,7 @@ pub mod msg {
         fn handle(&mut self, msg: Logout, _ctx: &mut Self::Context) -> Self::Result {
             let db = self.db.clone();
             Box::pin(
-                async {
+                async move {
                     db.users
                         .remove_session_token(msg.0)
                         .await
@@ -144,7 +145,7 @@ pub mod msg {
         fn handle(&mut self, msg: StartPlaying, _ctx: &mut Self::Context) -> Self::Result {
             let db = self.db.clone();
             Box::pin(
-                async {
+                async move {
                     if let Some(user) = db
                         .users
                         .get_session_token(msg.session_token, &db.friendships)
@@ -157,7 +158,7 @@ pub mod msg {
                         }
                         user.playing = Some(msg.addr);
                         db.users.update(user.clone()).await;
-                        Ok(user.to_public_user_me(&db))
+                        Ok(user.to_public_user_me(&db).await)
                     } else {
                         Err(SrvMsgError::IncorrectCredentials)
                     }
@@ -185,7 +186,7 @@ pub mod msg {
         fn handle(&mut self, msg: IntUserMgrMsg, _ctx: &mut Self::Context) -> Self::Result {
             let db = self.db.clone();
             Box::pin(
-                async {
+                async move {
                     use GameMsg::*;
                     use IntUserMgrMsg::*;
                     let mut lobby_mgr_state: Option<BacklinkState> = None;
@@ -254,15 +255,15 @@ pub mod msg {
         pub query: String,
     }
     impl Message for SearchUsers {
-        type Result = Result<Vec<PublicUserOther>, ()>;
+        type Result = Option<Vec<PublicUserOther>>;
     }
 
     impl Handler<SearchUsers> for UserManager {
-        type Result = ResponseActFuture<Self, Result<Vec<PublicUserOther>, ()>>;
+        type Result = ResponseActFuture<Self, Option<Vec<PublicUserOther>>>;
 
         fn handle(&mut self, msg: SearchUsers, _ctx: &mut Self::Context) -> Self::Result {
             let db = self.db.clone();
-            Box::pin(async { Ok(db.users.query(&msg.query).await) }.into_actor(self))
+            Box::pin(async move { Some(db.users.query(&msg.query).await) }.into_actor(self))
         }
     }
 
@@ -276,11 +277,14 @@ pub mod msg {
         fn handle(&mut self, msg: GetUserMe, _ctx: &mut Self::Context) -> Self::Result {
             let db = self.db.clone();
             Box::pin(
-                async {
-                    db.users
-                        .get_session_token(msg.0, &db.friendships)
-                        .await
-                        .map(|user| user.to_public_user_me(&db))
+                async move {
+                    Into::<OptionFuture<_>>::into(
+                        db.users
+                            .get_session_token(msg.0, &db.friendships)
+                            .await
+                            .map(|user| user.to_public_user_me(&db)),
+                    )
+                    .await
                 }
                 .into_actor(self),
             )
@@ -296,7 +300,7 @@ pub mod msg {
         type Result = ResponseActFuture<Self, Option<PublicUserOther>>;
         fn handle(&mut self, msg: GetUserOther, _ctx: &mut Self::Context) -> Self::Result {
             let db = self.db.clone();
-            Box::pin(async { db.users.get_id_public(&msg.0).await }.into_actor(self))
+            Box::pin(async move { db.users.get_id_public(msg.0).await }.into_actor(self))
         }
     }
 
@@ -319,7 +323,7 @@ pub mod msg {
         fn handle(&mut self, msg: UserAction, _ctx: &mut Self::Context) -> Self::Result {
             let db = self.db.clone();
             Box::pin(
-                async {
+                async move {
                     if let Some(user_me) = db
                         .users
                         .get_session_token(msg.session_token, &db.friendships)
@@ -403,7 +407,7 @@ pub mod msg {
             let lobby_mgr = self.lobby_mgr_state.clone();
 
             Box::pin(
-                async {
+                async move {
                     if let BacklinkState::Linked(lobby_mgr) = &lobby_mgr {
                         if let Some(receiver) =
                             db.users.get_id(&msg.receiver_uid, &db.friendships).await

@@ -3,7 +3,7 @@ use dashmap::DashMap;
 use futures::future::OptionFuture;
 use mongodb::{
     bson::{self, doc},
-    Collection,
+    Collection, Database,
 };
 use serde::{Deserialize, Serialize};
 use tokio::stream::StreamExt;
@@ -19,14 +19,14 @@ use crate::{
 };
 
 pub struct UserCollection {
-    pub collection: Collection<DbUser>,
+    collection: Collection<DbUser>,
     playing_users_cache: DashMap<UserId, Addr<ClientState>>,
 }
 
 impl UserCollection {
-    pub fn new(collection: Collection<DbUser>) -> Self {
+    pub fn new(db: &Database) -> Self {
         UserCollection {
-            collection,
+            collection: db.collection_with_type("users"),
             playing_users_cache: DashMap::new(),
         }
     }
@@ -126,7 +126,7 @@ impl UserCollection {
         user.await
     }
 
-    pub async fn get_id_public(&self, id: &UserId) -> Option<PublicUserOther> {
+    pub async fn get_id_public(&self, id: UserId) -> Option<PublicUserOther> {
         self.collection
             .find_one(doc! {"_id": id.to_string()}, None)
             .await
@@ -205,6 +205,7 @@ struct DbUser {
     pub game_info: UserGameInfo,
 
     #[serde(skip)]
+    #[allow(dead_code)]
     pub session_tokens: Vec<SessionToken>,
 }
 

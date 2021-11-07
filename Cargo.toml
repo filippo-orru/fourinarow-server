@@ -15,7 +15,6 @@ actix-files = "0.4"
 actix-service = "1.0"
 actix-cors = "0.5"
 tokio = { version = "0.3", features = ["stream", "macros"] }
-tokio-async-std = "1.5.3"
 futures = "0.3"
 
 mongodb = { version = "1.2.3", features = ["tokio-runtime"] }

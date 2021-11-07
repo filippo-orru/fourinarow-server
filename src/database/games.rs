@@ -1,4 +1,4 @@
-use mongodb::Collection;
+use mongodb::{Collection, Database};
 
 use crate::api::users::user::PlayedGameInfo;
 
@@ -7,8 +7,10 @@ pub struct GameCollection {
 }
 
 impl GameCollection {
-    pub fn new(collection: Collection<PlayedGameInfo>) -> Self {
-        GameCollection { collection }
+    pub fn new(db: &Database) -> Self {
+        GameCollection {
+            collection: db.collection_with_type("games"),
+        }
     }
 
     pub async fn insert(&self, game: PlayedGameInfo) -> bool {

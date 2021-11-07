@@ -154,13 +154,9 @@ pub enum ServerMessage {
     PlaceChip(usize),
     OpponentLeaving,
     OpponentJoining,
-    LobbyResponse(GameId),
-    /// ( bool: true if recipient goes first,
-    ///   Option<String>: Set if opponent is logged in
     GameStart(bool, Option<String>),
     GameOver(bool), // true if recipient won
     LobbyClosing,
-    Okay,
     ServerPing,
     ServerPong,
     ReadyForGamePing,
@@ -178,7 +174,6 @@ impl ServerMessage {
             PlaceChip(row) => format!("PC:{}", row),
             OpponentLeaving => "OPP_LEAVING".to_owned(),
             OpponentJoining => "OPP_JOINED".to_owned(),
-            LobbyResponse(game_id) => format!("LOBBY_ID:{}", game_id),
             GameStart(your_turn, maybe_username) => format!(
                 "GAME_START:{}{}",
                 if your_turn { "YOU" } else { "OPP" },
@@ -190,7 +185,6 @@ impl ServerMessage {
             ),
             GameOver(you_win) => format!("GAME_OVER:{}", if you_win { "YOU" } else { "OPP" }),
             LobbyClosing => "LOBBY_CLOSING".to_owned(),
-            Okay => "OKAY".to_owned(),
             ServerPing => "PING".to_owned(),
             ServerPong => "PONG".to_owned(),
             ReadyForGamePing => "READY_FOR_GAME_PING".to_owned(),
@@ -257,17 +251,6 @@ impl SrvMsgError {
             NotLoggedIn => "NotLoggedIn".to_owned(),
             UserNotPlaying => "UserNotPlaying".to_owned(),
             NoSuchUser => "NoSuchUser".to_owned(),
-        }
-    }
-}
-
-impl From<bool> for ServerMessage {
-    /// Maps a boolean to Okay / Error
-    fn from(b: bool) -> Self {
-        if b {
-            ServerMessage::Okay
-        } else {
-            ServerMessage::Error(None)
         }
     }
 }

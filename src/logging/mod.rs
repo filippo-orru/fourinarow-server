@@ -21,7 +21,7 @@ impl Actor for Logger {
 impl Handler<GameLogEvent> for Logger {
     type Result = ();
 
-    fn handle(&mut self, msg: GameLogEvent, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, _msg: GameLogEvent, _: &mut Self::Context) -> Self::Result {
         //todo!()
         ()
     }
@@ -29,7 +29,7 @@ impl Handler<GameLogEvent> for Logger {
 impl Handler<LobbyLogEvent> for Logger {
     type Result = ();
 
-    fn handle(&mut self, msg: LobbyLogEvent, _: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, _msg: LobbyLogEvent, _: &mut Self::Context) -> Self::Result {
         //todo!()
         ()
     }

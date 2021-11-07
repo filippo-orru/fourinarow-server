@@ -1,10 +1,11 @@
 use actix_web::{web, HttpRequest, HttpResponse};
+use futures::future::OptionFuture;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::{api::users::user::UserId, database::DatabaseManager};
 
-#[derive(Serialize, Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PublicChatMsg {
     pub id: i64, // Monotonically increasing index of messages in this thread_id
     pub content: String,
@@ -28,7 +29,8 @@ async fn get_messages_by_thread_id(
     HttpResponse::Ok().json(
         db_mgr
             .chat_msgs
-            .get_messages_in_thread(thread_id, query.before_id),
+            .get_messages_in_thread(thread_id, query.before_id)
+            .await,
     )
 }
 
@@ -43,13 +45,16 @@ async fn post_chat_msg(
     web::Path(thread_id): web::Path<String>,
     web::Json(msg): web::Json<PostedChatMsg>,
 ) -> HttpResponse {
-    let user_id = get_session_token(&req).and_then(|session_token| {
-        db_mgr
-            .users
-            .get_session_token(session_token, &db_mgr.friendships)
-            .map(|u| u.id)
-    });
-    if let Ok(_) = db_mgr.chat_msgs.add(thread_id, user_id, msg) {
+    let user: OptionFuture<_> = get_session_token(&req)
+        .map(|session_token| {
+            db_mgr
+                .users
+                .get_session_token(session_token, &db_mgr.friendships)
+        })
+        .into();
+    let user_id = user.await.flatten().map(|u| u.id);
+
+    if let Ok(_) = db_mgr.chat_msgs.add(thread_id, user_id, msg).await {
         HttpResponse::Ok()
     } else {
         HttpResponse::InternalServerError()

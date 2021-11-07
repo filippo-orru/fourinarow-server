@@ -1,7 +1,7 @@
-use futures::{future::OptionFuture, stream::Collect};
+use futures::future::OptionFuture;
 use mongodb::{
     bson::{self, doc},
-    Collection,
+    Collection, Database,
 };
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, fmt, time::SystemTime};
@@ -104,34 +104,37 @@ impl DbFriendship {
 }
 
 impl FriendshipCollection {
-    pub fn new(collection: Collection<DbFriendship>) -> Self {
-        FriendshipCollection { collection }
+    pub fn new(db: &Database) -> Self {
+        FriendshipCollection {
+            collection: db.collection_with_type("friendships"),
+        }
     }
 
     pub async fn get_for(&self, user_id: UserId) -> BackendFriendshipsMe {
-        let friends: OptionFuture<Collect<_, Result<DbFriendship, _>>> = self
+        let friends: OptionFuture<_> = self
             .collection
             .find(
                 doc! {"$or": [{"from_id": user_id.to_string()}, {"to_id": user_id.to_string()}]},
                 None,
             )
             .await
+            .map(|cursor| {
+                cursor.map(|result| {
+                    result.map(|friend_request| {
+                        friend_request.to_backend(user_id)
+                        //::<Vec<BackendFriendshipMe>>()
+                    })
+                })
+            })
             .ok()
-            .map(|cursor| cursor.collect::<Result<_, _>>())
+            .map(|cursor| cursor.collect::<Result<Vec<_>, _>>())
             .into();
 
         friends
             .await
-            .map(|r| {
-                r.map(|friendships| {
-                    BackendFriendshipsMe::from(
-                        friendships
-                            .into_iter()
-                            .map(|friend_request| friend_request.to_backend(user_id))
-                            .collect::<Vec<BackendFriendshipMe>>(),
-                    )
-                })
-            })
+            .map(|r| r.ok())
+            .flatten()
+            .map(|friendships| BackendFriendshipsMe::from(friendships))
             .unwrap_or(BackendFriendshipsMe::new())
     }
 

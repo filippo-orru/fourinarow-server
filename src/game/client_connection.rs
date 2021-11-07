@@ -12,8 +12,9 @@ use actix_web_actors::ws;
 
 use std::time::{Duration, Instant};
 
-const HB_INTERVAL: u64 = 2;
-const HB_TIMEOUT: u64 = 8;
+const HB_INTERVAL_S: u64 = 2;
+const HB_TIMEOUT_S: u64 = 8;
+const AUTODETECT_LEGACY_CONNECTION_TIMEOUT_S: u64 = 2;
 
 pub struct ClientConnection {
     hb: Instant,
@@ -46,10 +47,10 @@ impl ClientConnection {
     }
 
     fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {
-        ctx.run_interval(Duration::from_secs(HB_INTERVAL), |act, ctx| {
+        ctx.run_interval(Duration::from_secs(HB_INTERVAL_S), |act, ctx| {
             //&mut WsClientConnection
             //: &mut ws::WebsocketContext<WsClientConnection>
-            if act.hb.elapsed().as_secs() >= HB_TIMEOUT {
+            if act.hb.elapsed().as_secs() >= HB_TIMEOUT_S {
                 // println!("Client timed out");
                 // act.client_state_addr.do_send(ClientStateMessage::Close);
                 ctx.stop();
@@ -249,19 +250,22 @@ impl Actor for ClientConnection {
     fn started(&mut self, ctx: &mut Self::Context) {
         // println!("ClientConn: Starting");
         self.hb(ctx);
-        ctx.run_later(Duration::from_secs(5), |act, ctx| {
-            if let ClientAdapterConnectionState::NotConnected = act.connection_state {
-                act.connection_mgr
-                    .do_send(ConnectionManagerMsg::RequestAdapterLegacy(
-                        NewAdapterAdresses {
-                            client_conn: ctx.address(),
-                            lobby_mgr: act.lobby_mgr.clone(),
-                            user_mgr: act.user_mgr.clone(),
-                        },
-                        None,
-                    ));
-            }
-        });
+        ctx.run_later(
+            Duration::from_secs(AUTODETECT_LEGACY_CONNECTION_TIMEOUT_S),
+            |act, ctx| {
+                if let ClientAdapterConnectionState::NotConnected = act.connection_state {
+                    act.connection_mgr
+                        .do_send(ConnectionManagerMsg::RequestAdapterLegacy(
+                            NewAdapterAdresses {
+                                client_conn: ctx.address(),
+                                lobby_mgr: act.lobby_mgr.clone(),
+                                user_mgr: act.user_mgr.clone(),
+                            },
+                            None,
+                        ));
+                }
+            },
+        );
     }
 
     fn stopping(&mut self, ctx: &mut Self::Context) -> Running {

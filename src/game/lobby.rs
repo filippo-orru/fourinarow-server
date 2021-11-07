@@ -14,7 +14,9 @@ use actix::*;
 // use futures;
 use std::time::{Duration, Instant};
 
-const LOBBY_TIMEOUT_S: u64 = 30 * 60; // 30 Minutes
+const LOBBY_TIMEOUT_S: u64 = 30 * 60; // 30 minutes
+const GAME_START_DELAY_S: u64 = 2;
+const GAME_READY_RESPONSE_TIMEOUT_MS: u64 = 5000; // TODO: 1 second
 
 enum LobbyState {
     OnePlayer {
@@ -23,6 +25,7 @@ enum LobbyState {
     TwoPlayersWaitingForPing {
         host_info: LobbyPlayerInfo,
         joined_info: LobbyPlayerInfo,
+        timeout_handle: SpawnHandle,
     },
     TwoPlayers {
         game_oid: GameOId,
@@ -90,6 +93,30 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                 self.logger.do_send(LobbyLogEvent::LobbyClosed {
                     id: self.lobby_id.clone(),
                 });
+
+                fn send_messages(
+                    logger: &Addr<Logger>,
+                    leave_reason: PlayerLeaveReason,
+                    game_oid: Option<GameOId>,
+                    sender: Player,
+                    host_addr: &Addr<ClientState>,
+                    joined_addr: &Addr<ClientState>,
+                ) {
+                    if let Some(game_oid) = game_oid {
+                        logger.do_send(GameLogEvent::EndGame {
+                            id: game_oid,
+                            reason: match leave_reason {
+                                PlayerLeaveReason::Leave => GameEndReason::PlayerLeft,
+                                PlayerLeaveReason::Disconnect => GameEndReason::PlayerDisconnected,
+                            },
+                        });
+                    }
+                    let leaving_addr = sender.select(host_addr, joined_addr);
+                    let other_addr = sender.other().select(host_addr, joined_addr);
+                    other_addr.do_send(ClientStateMessage::Reset);
+                    other_addr.do_send(ServerMessage::OpponentLeaving);
+                }
+
                 match &self.lobby_state {
                     LobbyState::TwoPlayers {
                         game_oid,
@@ -97,37 +124,30 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                         host_addr,
                         joined_addr,
                     } => {
-                        self.logger.do_send(GameLogEvent::EndGame {
-                            id: game_oid.clone(),
-                            reason: match leave_reason {
-                                PlayerLeaveReason::Leave => GameEndReason::PlayerLeft,
-                                PlayerLeaveReason::Disconnect => GameEndReason::PlayerDisconnected,
-                            },
-                        });
-                        let leaving_addr = msg_named.sender.select(host_addr, joined_addr);
-                        let other_addr = msg_named.sender.other().select(host_addr, joined_addr);
-                        other_addr.do_send(ClientStateMessage::Reset);
-                        other_addr.do_send(ServerMessage::OpponentLeaving);
-                        leaving_addr.do_send(ServerMessage::Okay);
+                        send_messages(
+                            &self.logger,
+                            leave_reason,
+                            Some(game_oid.clone()),
+                            msg_named.sender,
+                            host_addr,
+                            joined_addr,
+                        );
                     }
                     LobbyState::TwoPlayersWaitingForPing {
                         host_info,
                         joined_info,
+                        ..
                     } => {
-                        let leaving_addr = msg_named
-                            .sender
-                            .select(host_info.addr.clone(), joined_info.addr.clone());
-                        let other_addr = msg_named
-                            .sender
-                            .other()
-                            .select(host_info.addr.clone(), joined_info.addr.clone());
-                        other_addr.do_send(ClientStateMessage::Reset);
-                        other_addr.do_send(ServerMessage::OpponentLeaving);
-                        leaving_addr.do_send(ServerMessage::Okay);
+                        send_messages(
+                            &self.logger,
+                            leave_reason,
+                            None,
+                            msg_named.sender,
+                            &host_info.addr,
+                            &joined_info.addr,
+                        );
                     }
-                    LobbyState::OnePlayer { host_info } => {
-                        host_info.addr.do_send(ServerMessage::Okay);
-                    }
+                    LobbyState::OnePlayer { host_info } => {}
                 }
                 ctx.stop();
                 Ok(())
@@ -147,7 +167,6 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                                 if let Some(winner_info) = &mut game_info.winner {
                                     if let Some(already_requested) = winner_info.requesting_rematch
                                     {
-                                        requesting_addr.do_send(ServerMessage::Okay);
                                         if already_requested != msg_named.sender {
                                             // both have now requested -> rematch
                                             ctx.notify(LobbyMessage::GameStart);
@@ -157,7 +176,6 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                                         }
                                     } else {
                                         winner_info.requesting_rematch = Some(msg_named.sender);
-                                        requesting_addr.do_send(ServerMessage::Okay);
                                     }
                                 } else {
                                     // game not over yet
@@ -172,6 +190,7 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                     LobbyState::TwoPlayersWaitingForPing {
                         host_info,
                         joined_info,
+                        ..
                     } => {
                         host_info
                             .addr
@@ -200,7 +219,7 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                         match game_info.place_chip(column, msg_named.sender) {
                             Ok(maybe_winner) => {
                                 let placing_addr = msg_named.sender.select(host_addr, joined_addr);
-                                placing_addr.do_send(ServerMessage::Okay);
+
                                 let other_addr =
                                     msg_named.sender.other().select(host_addr, joined_addr);
                                 other_addr.do_send(ServerMessage::PlaceChip(column));
@@ -238,6 +257,7 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                 LobbyState::TwoPlayersWaitingForPing {
                     ref host_info,
                     ref joined_info,
+                    ..
                 } => {
                     host_info
                         .addr
@@ -289,7 +309,7 @@ pub enum LobbyMessage {
     GameStart,
     LobbyClose,
     PlayerJoined {
-        joining_addr: Addr<ClientState>,
+        joined_addr: Addr<ClientState>,
         maybe_uid: Option<UserId>,
     },
 }
@@ -336,84 +356,6 @@ impl Handler<LobbyMessage> for Lobby {
                                 game_info.turn == Player::Two,
                                 Some(host_id.to_string()),
                             ));
-                            // println!("before async");
-                            // || {
-                            // async {
-                            // if let (Ok(Some(host_user)), Ok(Some(joined_user))) = (
-                            // user_mgr
-                            //     .send(user_mgr::msg::GetUser(UserIdent::Id(*host_id)))
-                            //     .into_actor(self)
-                            //     .wait(ctx),
-                            // user_mgr
-                            //     .send(user_mgr::msg::GetUser(UserIdent::Id(*joined_id)))
-                            //     .into_actor(self)
-                            //     .wait(ctx),
-                            // ) {
-                            // if let (Ok(Some(host_user)), Ok(Some(joined_user))) =
-                            //     // futures::executor::block_on(async {
-                            //     (
-                            //     ctx.wait(
-                            //         user_mgr
-                            //             .send(user_mgr::msg::GetUser(UserIdent::Id(*host_id)))
-                            //             .into_actor(self),
-                            //     ),
-                            //     ctx.wait(
-                            //         user_mgr
-                            //             .send(user_mgr::msg::GetUser(UserIdent::Id(*joined_id)))
-                            //             .into_actor(self),
-                            //     ),
-                            // ) {
-                            // user_mgr
-                            //     .send(user_mgr::msg::GetUser(UserIdent::Id(*host_id)))
-                            //     .into_actor(self)
-                            //     .then(|host_res: Result<Option<PublicUser>, _>, act, ctx_inner| {
-                            //         user_mgr
-                            //             .send(user_mgr::msg::GetUser(UserIdent::Id(*joined_id)))
-                            //             // .send(user_mgr::msg::GetUser(UserIdent::Id(*joined_id)))
-                            //             .into_actor(act)
-                            //             .then(|joined_res: Result<Option<PublicUser>, _>, _, _| {
-                            //                 if let (Ok(Some(host_user)), Ok(Some(joined_user))) =
-                            //                     (host_res, joined_res)
-                            //                 {
-                            //                     host_addr.clone().do_send(
-                            //                         ServerMessage::GameStart(
-                            //                             game_info.turn == Player::One,
-                            //                             Some(host_user.username),
-                            //                         ),
-                            //                     );
-                            //                     joined_addr.clone().do_send(
-                            //                         ServerMessage::GameStart(
-                            //                             game_info.turn == Player::Two,
-                            //                             Some(joined_user.username),
-                            //                         ),
-                            //                     );
-                            //                 } else {
-                            //                     println!("Game not starting :(");
-                            //                     host_addr.clone().do_send(ServerMessage::Error(
-                            //                         Some(SrvMsgError::IncorrectCredentials),
-                            //                     ));
-                            //                     joined_addr.clone().do_send(ServerMessage::Error(
-                            //                         Some(SrvMsgError::IncorrectCredentials),
-                            //                     ));
-                            //                     ctx.stop();
-                            //                 }
-                            //                 fut::ready(())
-                            //             })
-                            //             .wait(ctx_inner);
-                            //         fut::ready(())
-                            //     })
-                            //     .wait(ctx);
-                            // }
-                            // .into_actor(self)
-                            // .wait(ctx);
-                            // println!("after async");
-                            // }
-                            // fut::ready(())
-                            //         })
-                            //         .wait(ctx);
-                            // })
-                            // .wait(ctx);
-                            // return Ok(());
                         }
                     }
 
@@ -426,10 +368,11 @@ impl Handler<LobbyMessage> for Lobby {
                 if let LobbyState::TwoPlayersWaitingForPing {
                     host_info,
                     joined_info,
+                    timeout_handle,
                 } = &mut self.lobby_state
                 {
+                    ctx.cancel_future(*timeout_handle);
                     joined_info.addr.do_send(LobbyRequestResponseReady);
-                    joined_info.addr.do_send(ServerMessage::Okay);
                     host_info.addr.do_send(ServerMessage::OpponentJoining);
                     joined_info.addr.do_send(ServerMessage::OpponentJoining);
                     self.lobby_state = if let (Some(host_id), Some(joined_id)) =
@@ -461,7 +404,10 @@ impl Handler<LobbyMessage> for Lobby {
                             joined_addr: joined_info.addr.clone(),
                         }
                     };
-                    ctx.notify_later(LobbyMessage::GameStart, Duration::from_secs(2));
+                    ctx.notify_later(
+                        LobbyMessage::GameStart,
+                        Duration::from_secs(GAME_START_DELAY_S),
+                    );
 
                     Ok(())
                 } else {
@@ -469,22 +415,34 @@ impl Handler<LobbyMessage> for Lobby {
                 }
             }
             LobbyMessage::PlayerJoined {
-                joining_addr,
+                joined_addr,
                 maybe_uid,
             } => {
                 if let LobbyState::OnePlayer { ref host_info } = self.lobby_state {
+                    // In case other player does not respond
+                    let joined_info = LobbyPlayerInfo {
+                        addr: joined_addr.clone(),
+                        maybe_uid,
+                    };
+
+                    let timeout_handle = ctx.run_later(
+                        Duration::from_millis(GAME_READY_RESPONSE_TIMEOUT_MS),
+                        move |act, ctx| {
+                            if let LobbyState::TwoPlayersWaitingForPing { .. } = act.lobby_state {
+                                ctx.stop();
+                            }
+                        },
+                    );
                     host_info.addr.do_send(ServerMessage::ReadyForGamePing);
                     self.lobby_state = LobbyState::TwoPlayersWaitingForPing {
                         host_info: host_info.clone(),
-                        joined_info: LobbyPlayerInfo {
-                            addr: joining_addr,
-                            maybe_uid: maybe_uid,
-                        },
+                        joined_info,
+                        timeout_handle,
                     };
 
                     Ok(())
                 } else {
-                    joining_addr.do_send(ServerMessage::OpponentJoining);
+                    joined_addr.do_send(ServerMessage::OpponentJoining);
                     Err(())
                 }
             }

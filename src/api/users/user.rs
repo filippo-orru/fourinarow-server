@@ -1,8 +1,10 @@
 use actix::Addr;
+use futures::future::join_all;
 use rand::{thread_rng, Rng};
 use serde::{de, Deserialize, Serialize, Serializer};
 use std::fmt;
 use std::slice::Iter;
+
 
 use crate::api::chat::ChatThreadId;
 use crate::database::DatabaseManager;
@@ -133,13 +135,13 @@ impl BackendUserMe {
         }
     }
 
-    pub fn to_public_user_me(self, db: &DatabaseManager) -> PublicUserMe {
+    pub async fn to_public_user_me(self, db: &DatabaseManager) -> PublicUserMe {
         PublicUserMe {
             id: self.id,
             username: self.username,
             email: self.email,
             game_info: self.game_info,
-            friendships: self.friendships.to_public(db),
+            friendships: self.friendships.to_public(db).await,
         }
     }
 
@@ -181,26 +183,31 @@ impl BackendFriendshipsMe {
         self.0.iter()
     }
 
-    fn to_public(self, db: &DatabaseManager) -> Vec<PublicFriend> {
-        self.iter()
-            .filter_map(|friendship| -> Option<PublicFriend> {
-                let chat_thread_id = if let BackendFriendshipState::Friends { chat_thread_id } =
-                    friendship.state.clone()
-                {
-                    Some(chat_thread_id)
-                } else {
-                    None
-                };
+    async fn to_public(self, db: &DatabaseManager) -> Vec<PublicFriend> {
+        join_all(self.iter().map(|friendship| {
+            let chat_thread_id = if let BackendFriendshipState::Friends { chat_thread_id } =
+                friendship.state.clone()
+            {
+                Some(chat_thread_id)
+            } else {
+                None
+            };
 
+            async move {
                 db.users
-                    .get_id_public(&friendship.other_id)
+                    .get_id_public(friendship.other_id)
+                    .await
                     .map(|user| PublicFriend {
                         user,
                         friend_state: friendship.state.to_public(),
                         chat_thread_id,
                     })
-            })
-            .collect()
+            }
+        }))
+        .await
+        .into_iter()
+        .filter_map(|f| f)
+        .collect()
     }
 }
 

@@ -4,8 +4,6 @@ pub mod games;
 pub mod users;
 
 use mongodb::{options::ClientOptions, Client};
-use serde::de::DeserializeOwned;
-use std::iter::Iterator;
 
 use self::{
     chat_msg::ChatMsgCollection, friendships::FriendshipCollection, games::GameCollection,
@@ -28,10 +26,10 @@ impl DatabaseManager {
         let db = client.database("fourinarow");
 
         DatabaseManager {
-            users: UserCollection::new(db.collection_with_type("users")),
-            games: GameCollection::new(db.collection_with_type("games")),
-            friendships: FriendshipCollection::new(db.collection_with_type("friendships")),
-            chat_msgs: ChatMsgCollection::new(db.collection_with_type("chat_messages")),
+            users: UserCollection::new(&db),
+            games: GameCollection::new(&db),
+            friendships: FriendshipCollection::new(&db),
+            chat_msgs: ChatMsgCollection::new(&db),
         }
     }
 
