@@ -138,10 +138,10 @@ pub mod msg {
         pub addr: Addr<ClientState>,
     }
     impl Message for StartPlaying {
-        type Result = Result<PublicUserMe, SrvMsgError>;
+        type Result = Result<PublicUserMe, ()>;
     }
     impl Handler<StartPlaying> for UserManager {
-        type Result = ResponseActFuture<Self, Result<PublicUserMe, SrvMsgError>>;
+        type Result = ResponseActFuture<Self, Result<PublicUserMe, ()>>;
         fn handle(&mut self, msg: StartPlaying, _ctx: &mut Self::Context) -> Self::Result {
             let db = self.db.clone();
             Box::pin(
@@ -160,7 +160,7 @@ pub mod msg {
                         db.users.update(user.clone()).await;
                         Ok(user.to_public_user_me(&db).await)
                     } else {
-                        Err(SrvMsgError::IncorrectCredentials)
+                        Err(())
                     }
                 }
                 .into_actor(self),
@@ -359,7 +359,7 @@ pub mod msg {
                                                     && req.other_id == other_id
                                             }) {
                                                 // User has already sent a request to this user.
-                                                false
+                                                true
                                             } else {
                                                 db.friendships.insert(user_me.id, other_id).await
                                             }

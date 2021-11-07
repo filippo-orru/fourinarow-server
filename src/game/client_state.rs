@@ -137,7 +137,7 @@ impl Handler<ClientStateMessage> for ClientState {
                 self.lobby_state = ClientLobbyState::Idle;
             }
             BattleReqJoinLobby(addr) => {
-                if let BacklinkState::Linked(ref client_adapter_addr) = self.backlinked_state {
+                if let BacklinkState::Linked(_) = self.backlinked_state {
                     self.lobby_state = ClientLobbyState::InLobby {
                         player: Player::One,
                         lobby: addr,
@@ -173,10 +173,6 @@ impl Handler<PlayerMessage> for ClientState {
         if let BacklinkState::Linked(ref client_adapter_addr) = self.backlinked_state {
             let client_adapter_addr = client_adapter_addr.clone();
             match msg {
-                PlayerPing => {
-                    client_adapter_addr.do_send(ServerMessage::ServerPong);
-                    ok
-                }
                 PlaceChip(column) => {
                     if let ClientLobbyState::InLobby {
                         player,
@@ -317,16 +313,25 @@ impl Handler<PlayerMessage> for ClientState {
                                     Ok(user) => {
                                         println!("Start playing! user: {:?}", user);
                                         act.maybe_user_info = Some(user);
+                                        client_adapter_addr.do_send(ServerMessage::LoginResponse {
+                                            success: true,
+                                        });
                                         // act.user_mgr.do_send(IntUserMgrMsg::StartPlaying(id));
                                     }
-                                    Err(srv_msg_err) => {
-                                        client_adapter_addr
-                                            .do_send(ServerMessage::Error(Some(srv_msg_err)));
+                                    Err(_) => {
+                                        // client_adapter_addr
+                                        //     .do_send(ServerMessage::Error(Some(srv_msg_err)));
+                                        client_adapter_addr.do_send(ServerMessage::LoginResponse {
+                                            success: false,
+                                        });
                                     }
                                 }
                             } else {
+                                // client_adapter_addr
+                                //     .do_send(ServerMessage::Error(Some(SrvMsgError::Internal)));
+                                // TODO: logging here and on all mailbox errors.
                                 client_adapter_addr
-                                    .do_send(ServerMessage::Error(Some(SrvMsgError::Internal)));
+                                    .do_send(ServerMessage::LoginResponse { success: false });
                             }
                             fut::ready(())
                         })
@@ -342,6 +347,7 @@ impl Handler<PlayerMessage> for ClientState {
                                 ctx.address(),
                             ));
                     }
+                    self.maybe_user_info = None;
                     ok
                 }
 
@@ -402,7 +408,6 @@ impl Handler<PlayerMessage> for ClientState {
                     }
                     ok
                 }
-                PlayerPong => todo!(),
                 ReadyForGamePong => {
                     if let ClientLobbyState::InLobby { player: _, lobby } = &self.lobby_state {
                         lobby.do_send(LobbyMessage::ReceivedReadyForGamePong);

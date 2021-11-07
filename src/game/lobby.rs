@@ -111,7 +111,6 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                             },
                         });
                     }
-                    let leaving_addr = sender.select(host_addr, joined_addr);
                     let other_addr = sender.other().select(host_addr, joined_addr);
                     other_addr.do_send(ClientStateMessage::Reset);
                     other_addr.do_send(ServerMessage::OpponentLeaving);
@@ -147,7 +146,7 @@ impl Handler<ClientLobbyMessageNamed> for Lobby {
                             &joined_info.addr,
                         );
                     }
-                    LobbyState::OnePlayer { host_info } => {}
+                    LobbyState::OnePlayer { .. } => {}
                 }
                 ctx.stop();
                 Ok(())

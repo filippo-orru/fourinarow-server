@@ -157,9 +157,8 @@ pub enum ServerMessage {
     GameStart(bool, Option<String>),
     GameOver(bool), // true if recipient won
     LobbyClosing,
-    ServerPing,
-    ServerPong,
     ReadyForGamePing,
+    LoginResponse { success: bool },
     Error(Option<SrvMsgError>),
     BattleReq(UserId, GameId),
     CurrentServerState(usize, bool), // connected players, someone wants to play
@@ -185,9 +184,8 @@ impl ServerMessage {
             ),
             GameOver(you_win) => format!("GAME_OVER:{}", if you_win { "YOU" } else { "OPP" }),
             LobbyClosing => "LOBBY_CLOSING".to_owned(),
-            ServerPing => "PING".to_owned(),
-            ServerPong => "PONG".to_owned(),
             ReadyForGamePing => "READY_FOR_GAME_PING".to_owned(),
+            LoginResponse { success } => format!("LOGIN_RESPONSE:{}", success.to_string()),
             Error(maybe_msg) => {
                 if let Some(msg) = maybe_msg {
                     format!("ERROR:{}", msg.serialize())
@@ -228,7 +226,6 @@ pub enum SrvMsgError {
     AlreadyInLobby,
     GameNotStarted,
     GameNotOver,
-    IncorrectCredentials,
     NotLoggedIn,
     UserNotPlaying,
     NoSuchUser,
@@ -260,8 +257,6 @@ pub enum PlayerMessage {
     PlaceChip(usize),
     PlayAgainRequest,
     Leaving,
-    PlayerPing,
-    PlayerPong,
     ReadyForGamePong,
     LobbyRequest(LobbyKind),
     LobbyJoin(GameId),
@@ -296,10 +291,6 @@ impl PlayerMessage {
             }
         } else if s == "LEAVE" {
             return Some(Leaving);
-        } else if s == "PING" {
-            return Some(PlayerPing);
-        } else if s == "PONG" {
-            return Some(PlayerPong);
         } else if s == "READY_FOR_GAME_PONG" {
             return Some(ReadyForGamePong);
         } else if s == "PLAY_AGAIN" {
