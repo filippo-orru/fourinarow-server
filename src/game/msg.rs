@@ -154,16 +154,11 @@ pub enum ServerMessage {
     PlaceChip(usize),
     OpponentLeaving,
     OpponentJoining,
-    LobbyResponse(GameId),
-    /// ( bool: true if recipient goes first,
-    ///   Option<String>: Set if opponent is logged in
     GameStart(bool, Option<String>),
     GameOver(bool), // true if recipient won
     LobbyClosing,
-    Okay,
-    ServerPing,
-    ServerPong,
     ReadyForGamePing,
+    LoginResponse { success: bool },
     Error(Option<SrvMsgError>),
     BattleReq(UserId, GameId),
     CurrentServerState(usize, bool), // connected players, someone wants to play
@@ -178,7 +173,6 @@ impl ServerMessage {
             PlaceChip(row) => format!("PC:{}", row),
             OpponentLeaving => "OPP_LEAVING".to_owned(),
             OpponentJoining => "OPP_JOINED".to_owned(),
-            LobbyResponse(game_id) => format!("LOBBY_ID:{}", game_id),
             GameStart(your_turn, maybe_username) => format!(
                 "GAME_START:{}{}",
                 if your_turn { "YOU" } else { "OPP" },
@@ -190,10 +184,8 @@ impl ServerMessage {
             ),
             GameOver(you_win) => format!("GAME_OVER:{}", if you_win { "YOU" } else { "OPP" }),
             LobbyClosing => "LOBBY_CLOSING".to_owned(),
-            Okay => "OKAY".to_owned(),
-            ServerPing => "PING".to_owned(),
-            ServerPong => "PONG".to_owned(),
             ReadyForGamePing => "READY_FOR_GAME_PING".to_owned(),
+            LoginResponse { success } => format!("LOGIN_RESPONSE:{}", success.to_string()),
             Error(maybe_msg) => {
                 if let Some(msg) = maybe_msg {
                     format!("ERROR:{}", msg.serialize())
@@ -234,7 +226,6 @@ pub enum SrvMsgError {
     AlreadyInLobby,
     GameNotStarted,
     GameNotOver,
-    IncorrectCredentials,
     NotLoggedIn,
     UserNotPlaying,
     NoSuchUser,
@@ -261,24 +252,11 @@ impl SrvMsgError {
     }
 }
 
-impl From<bool> for ServerMessage {
-    /// Maps a boolean to Okay / Error
-    fn from(b: bool) -> Self {
-        if b {
-            ServerMessage::Okay
-        } else {
-            ServerMessage::Error(None)
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum PlayerMessage {
     PlaceChip(usize),
     PlayAgainRequest,
     Leaving,
-    PlayerPing,
-    PlayerPong,
     ReadyForGamePong,
     LobbyRequest(LobbyKind),
     LobbyJoin(GameId),
@@ -313,10 +291,6 @@ impl PlayerMessage {
             }
         } else if s == "LEAVE" {
             return Some(Leaving);
-        } else if s == "PING" {
-            return Some(PlayerPing);
-        } else if s == "PONG" {
-            return Some(PlayerPong);
         } else if s == "READY_FOR_GAME_PONG" {
             return Some(ReadyForGamePong);
         } else if s == "PLAY_AGAIN" {

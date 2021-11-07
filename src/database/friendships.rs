@@ -1,20 +1,19 @@
-use std::{cmp::Ordering, fmt, time::SystemTime};
-
+use futures::future::OptionFuture;
 use mongodb::{
     bson::{self, doc},
-    sync::Collection,
+    Collection, Database,
 };
 use serde::{Deserialize, Serialize};
+use std::{cmp::Ordering, fmt, time::SystemTime};
+use tokio::stream::StreamExt;
 
 use crate::api::{
     chat::ChatThreadId,
     users::user::{BackendFriendshipMe, BackendFriendshipState, BackendFriendshipsMe, UserId},
 };
 
-use super::deserialize_vec;
-
 pub struct FriendshipCollection {
-    pub collection: Collection,
+    pub collection: Collection<DbFriendship>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -105,39 +104,48 @@ impl DbFriendship {
 }
 
 impl FriendshipCollection {
-    pub fn new(collection: Collection) -> Self {
-        FriendshipCollection { collection }
+    pub fn new(db: &Database) -> Self {
+        FriendshipCollection {
+            collection: db.collection_with_type("friendships"),
+        }
     }
 
-    pub fn get_for(&self, user_id: UserId) -> BackendFriendshipsMe {
-        self.collection
+    pub async fn get_for(&self, user_id: UserId) -> BackendFriendshipsMe {
+        let friends: OptionFuture<_> = self
+            .collection
             .find(
                 doc! {"$or": [{"from_id": user_id.to_string()}, {"to_id": user_id.to_string()}]},
                 None,
             )
-            .ok()
-            .map(|cursor| deserialize_vec::<DbFriendship>(cursor))
-            .map(|db_friend_requests| {
-                BackendFriendshipsMe::from(
-                    db_friend_requests
-                        .into_iter()
-                        .map(|friend_request| friend_request.to_backend(user_id))
-                        .collect::<Vec<BackendFriendshipMe>>(),
-                )
+            .await
+            .map(|cursor| {
+                cursor.map(|result| {
+                    result.map(|friend_request| {
+                        friend_request.to_backend(user_id)
+                        //::<Vec<BackendFriendshipMe>>()
+                    })
+                })
             })
+            .ok()
+            .map(|cursor| cursor.collect::<Result<Vec<_>, _>>())
+            .into();
+
+        friends
+            .await
+            .map(|r| r.ok())
+            .flatten()
+            .map(|friendships| BackendFriendshipsMe::from(friendships))
             .unwrap_or(BackendFriendshipsMe::new())
     }
 
-    pub fn insert(&self, from_id: UserId, to_id: UserId) -> bool {
+    pub async fn insert(&self, from_id: UserId, to_id: UserId) -> bool {
         self.collection
-            .insert_one(
-                bson::to_document(&DbFriendship::new(from_id, to_id)).unwrap(),
-                None,
-            )
+            .insert_one(DbFriendship::new(from_id, to_id), None)
+            .await
             .is_ok()
     }
 
-    pub fn upgrade_to_friends(
+    pub async fn upgrade_to_friends(
         &self,
         from_id: UserId,
         to_id: UserId,
@@ -154,15 +162,17 @@ impl FriendshipCollection {
                 doc! { "$set": { "friendship_type": friendship_type }},
                 None,
             )
+            .await
             .is_ok()
     }
 
-    pub fn remove(&self, from_id: UserId, to_id: UserId) -> bool {
+    pub async fn remove(&self, from_id: UserId, to_id: UserId) -> bool {
         self.collection
             .delete_one(
                 doc! { "_id": FriendshipId::new(&from_id, &to_id).to_string() },
                 None,
             )
+            .await
             .is_ok()
     }
 }

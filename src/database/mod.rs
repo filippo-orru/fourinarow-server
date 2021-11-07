@@ -3,12 +3,7 @@ pub mod friendships;
 pub mod games;
 pub mod users;
 
-use mongodb::{
-    bson::{self, Document},
-    options::ClientOptions,
-    sync::{Client, Cursor},
-};
-use serde::de::DeserializeOwned;
+use mongodb::{options::ClientOptions, Client};
 
 use self::{
     chat_msg::ChatMsgCollection, friendships::FriendshipCollection, games::GameCollection,
@@ -26,15 +21,15 @@ pub struct DatabaseManager {
 
 impl DatabaseManager {
     pub async fn new() -> DatabaseManager {
-        let opt = ClientOptions::parse(DB_URL).unwrap();
+        let opt = ClientOptions::parse(DB_URL).await.unwrap();
         let client = Client::with_options(opt).expect("Failed to start mongodb client");
         let db = client.database("fourinarow");
 
         DatabaseManager {
-            users: UserCollection::new(db.collection("users")),
-            games: GameCollection::new(db.collection("games")),
-            friendships: FriendshipCollection::new(db.collection("friendships")),
-            chat_msgs: ChatMsgCollection::new(db.collection("chat_messages")),
+            users: UserCollection::new(&db),
+            games: GameCollection::new(&db),
+            friendships: FriendshipCollection::new(&db),
+            chat_msgs: ChatMsgCollection::new(&db),
         }
     }
 
@@ -42,10 +37,10 @@ impl DatabaseManager {
     //     *self.friend_requests.borrow()
     // }
 }
-
-pub fn deserialize_vec<T>(cursor: Cursor) -> Vec<T>
+/*
+pub fn deserialize_vec<T>(cursor: Cursor<T>) -> Vec<T>
 where
-    T: DeserializeOwned,
+    T: DeserializeOwned + Unpin + Send + Sync,
 {
     cursor
         .collect::<Vec<mongodb::error::Result<Document>>>()
@@ -64,7 +59,7 @@ where
 {
     bson::from_bson::<T>(doc.into()).ok()
 }
-
+*/
 // impl Actor for DatabaseManager {
 //     type Context = Context<Self>;
 // }

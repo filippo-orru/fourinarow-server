@@ -151,12 +151,12 @@ impl Handler<LobbyRequest> for LobbyManager {
                 match kind {
                     LobbyKind::Public => {
                         if let Some(open_lobby) = self.open_lobby.clone() {
+                            self.open_lobby = None;
+
                             open_lobby.addr.do_send(LobbyMessage::PlayerJoined {
-                                joining_addr: requesting_addr,
+                                joined_addr: requesting_addr,
                                 maybe_uid,
                             });
-
-                            self.open_lobby = None;
 
                             self.closed_lobby_map
                                 .insert(open_lobby.game_id, open_lobby.clone());
@@ -207,7 +207,7 @@ impl Handler<LobbyRequest> for LobbyManager {
                 if let Some(ref mut lobby_info) = self.open_lobby_map.get_mut(&id) {
                     if lobby_info.kind == kind {
                         lobby_info.addr.do_send(LobbyMessage::PlayerJoined {
-                            joining_addr,
+                            joined_addr: joining_addr,
                             maybe_uid: maybe_user_id,
                         });
 

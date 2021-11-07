@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use actix::Message;
 use mongodb::bson::oid::ObjectId;
 

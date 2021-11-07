@@ -1,18 +1,16 @@
 use std::time::SystemTime;
 
-use mongodb::{
-    bson::{self, doc},
-    options::FindOptions,
-    sync::Collection,
-};
+use futures::future::OptionFuture;
+use mongodb::Database;
+use mongodb::{bson::*, options::FindOptions, Collection};
 use serde::{Deserialize, Serialize};
+use tokio::stream::StreamExt;
 
-use super::deserialize_vec;
 use crate::api::chat::{PostedChatMsg, PublicChatMsg};
 use crate::api::users::user::UserId;
 
 pub struct ChatMsgCollection {
-    pub collection: Collection,
+    collection: Collection<DbChatMsg>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -25,11 +23,13 @@ struct DbChatMsg {
 }
 
 impl ChatMsgCollection {
-    pub fn new(collection: Collection) -> Self {
-        ChatMsgCollection { collection }
+    pub fn new(db: &Database) -> Self {
+        ChatMsgCollection {
+            collection: db.collection_with_type("chat_messages"),
+        }
     }
 
-    pub fn get_messages_in_thread(
+    pub async fn get_messages_in_thread(
         &self,
         thread_id: String,
         maybe_before_id: Option<u64>,
@@ -41,25 +41,34 @@ impl ChatMsgCollection {
         };
         let mut options = FindOptions::default();
         options.limit = Some(50);
-        options.sort = Some(doc! { "id": -1 });
-        self.collection
+        let minus_one: i32 = -1;
+        options.sort = Some(doc! { "id": minus_one });
+        let messages: OptionFuture<_> = self
+            .collection
             .find(doc, Some(options))
-            .map(|cursor| deserialize_vec::<DbChatMsg>(cursor))
-            .map(|db_msgs| {
-                db_msgs
-                    .into_iter()
-                    .map(|db_msg| PublicChatMsg {
-                        id: db_msg.id,
-                        from: db_msg.from,
-                        timestamp: db_msg.timestamp,
-                        content: db_msg.content,
+            .await
+            .map(|cursor| {
+                cursor
+                    .map(|result| {
+                        result.map(|db_msg| PublicChatMsg {
+                            id: db_msg.id,
+                            from: db_msg.from,
+                            timestamp: db_msg.timestamp,
+                            content: db_msg.content,
+                        })
                     })
-                    .collect()
+                    .collect::<Result<Vec<_>, _>>()
             })
+            .ok()
+            .into();
+        messages
+            .await
+            .map(|r| r.ok())
+            .flatten()
             .unwrap_or(Vec::new())
     }
 
-    pub fn add(
+    pub async fn add(
         &self,
         thread_id: String,
         from_id: Option<UserId>,
@@ -67,12 +76,14 @@ impl ChatMsgCollection {
     ) -> Result<(), ()> {
         let msg_id = self
             .get_messages_in_thread(thread_id.clone(), None)
+            .await
             .first()
             .map_or(0, |m| m.id + 1);
 
-        let db_msg = bson::to_document(&DbChatMsg::from(thread_id, msg_id, from_id, msg)).unwrap();
+        let db_msg = DbChatMsg::from(thread_id, msg_id, from_id, msg);
         self.collection
             .insert_one(db_msg, None)
+            .await
             .map(|_| ())
             .map_err(|_| ())
     }

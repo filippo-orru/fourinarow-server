@@ -92,7 +92,7 @@ async fn search_user(
     if query.0.search.len() > 25 && query.0.search.len() < 4 {
         HR::Ok().json(Vec::<user::PublicUserOther>::new())
     } else {
-        let user_res: Result<Option<Vec<user::PublicUserOther>>, MailboxError> = user_mgr
+        let user_res: Result<Option<Vec<user::PublicUserOther>>, _> = user_mgr
             .send(user_mgr::msg::SearchUsers {
                 query: query.search.clone(),
             })

@@ -3,17 +3,16 @@ mod database;
 mod game;
 mod logging;
 
+use std::io;
 use std::sync::Arc;
 
 use actix::Actor;
 use actix_cors::Cors;
 use actix_files as fs;
-use actix_web::dev::Server;
 use actix_web::http::header;
 use actix_web::{middleware, web, App, HttpResponse, HttpServer};
 
 use api::users::user_mgr::UserManager;
-use async_std::task::block_on;
 use database::DatabaseManager;
 use dotenv::dotenv;
 use game::connection_mgr::ConnectionManager;
@@ -51,9 +50,9 @@ async fn main() {
     }
 }
 
-fn start_server(bind_addr: &str) -> Server {
+async fn start_server(bind_addr: &str) -> io::Result<()> {
     println!("Running on {}.", bind_addr);
-    let db_mgr = Arc::new(block_on(DatabaseManager::new()));
+    let db_mgr = Arc::new(DatabaseManager::new().await);
     let user_mgr_addr = UserManager::new(db_mgr.clone()).start();
     let logger_addr = Logger::new().start();
     let connection_mgr_addr = ConnectionManager::new(logger_addr.clone()).start();
@@ -104,4 +103,5 @@ fn start_server(bind_addr: &str) -> Server {
     .bind(bind_addr)
     .expect("Failed to bind address.")
     .run()
+    .await
 }
