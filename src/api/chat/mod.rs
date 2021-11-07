@@ -1,5 +1,4 @@
 use actix_web::{web, HttpRequest, HttpResponse};
-use futures::future::OptionFuture;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -45,14 +44,15 @@ async fn post_chat_msg(
     web::Path(thread_id): web::Path<String>,
     web::Json(msg): web::Json<PostedChatMsg>,
 ) -> HttpResponse {
-    let user: OptionFuture<_> = get_session_token(&req)
-        .map(|session_token| {
-            db_mgr
-                .users
-                .get_session_token(session_token, &db_mgr.friendships)
-        })
-        .into();
-    let user_id = user.await.flatten().map(|u| u.id);
+    let session_token = get_session_token(&req);
+    let user_id = match session_token {
+        Some(session_token) => db_mgr
+            .users
+            .get_session_token(session_token, &db_mgr.friendships)
+            .await
+            .map(|u| u.id),
+        None => None,
+    };
 
     if let Ok(_) = db_mgr.chat_msgs.add(thread_id, user_id, msg).await {
         HttpResponse::Ok()

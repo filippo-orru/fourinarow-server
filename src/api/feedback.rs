@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 /// Send feedback to me via mail
 use actix_web::{web, HttpResponse};
-use futures::future::OptionFuture;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{Message, SmtpTransport, Transport};
 use serde::Deserialize;
@@ -19,13 +18,12 @@ async fn create_feedback(
     db: web::Data<Arc<DatabaseManager>>,
     feedback: web::Json<Feedback>,
 ) -> HttpResponse {
-    let maybe_user_name =
-        Into::<OptionFuture<_>>::into(feedback.user_id.map(|id| db.users.get_id_public(id)))
-            .await
-            .flatten()
-            .map(|user| user.username.clone());
+    let maybe_username = match feedback.user_id {
+        Some(id) => db.users.get_id_public(id).await.map(|user| user.username),
+        None => None,
+    };
 
-    send_feedback_mail_wrap(maybe_user_name, feedback.content.clone()).await;
+    send_feedback_mail_wrap(maybe_username, feedback.content.clone()).await;
 
     HttpResponse::Ok().finish()
 }

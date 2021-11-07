@@ -244,7 +244,6 @@ impl SrvMsgError {
             GameNotStarted => "GameNotStarted".to_owned(),
             AlreadyInLobby => "AlreadyInLobby".to_owned(),
             GameNotOver => "GameNotOver".to_owned(),
-            IncorrectCredentials => "IncorrectCredentials".to_owned(),
             NotLoggedIn => "NotLoggedIn".to_owned(),
             UserNotPlaying => "UserNotPlaying".to_owned(),
             NoSuchUser => "NoSuchUser".to_owned(),

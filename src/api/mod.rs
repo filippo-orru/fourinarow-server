@@ -4,6 +4,7 @@ pub mod users;
 
 use actix_web::{web, HttpRequest, HttpResponse};
 use serde::Serialize;
+use HttpResponse as HR;
 
 use self::users::session_token::SessionToken;
 
@@ -32,22 +33,24 @@ impl ApiResponse<()> {
         }
     }
     #[allow(unreachable_patterns)]
-    pub fn from_api_error(err: ApiError) -> Self {
-        ApiResponse::new(
-            String::from("Access failed")
-                + match err {
-                    ApiError::PasswordInsufficient => ": insufficient password",
-                    ApiError::EmailInUse => ": email in use",
-                    ApiError::UsernameInUse => ": username in use",
-                    ApiError::InvalidUsername => {
-                        ": username invalid (too short, long or containing invalid characters)"
-                    }
-                    ApiError::AlreadyPlaying => ": user is already playing",
-                    ApiError::IncorrectCredentials => ": the credentials are incorrect",
-                    ApiError::InternalServerError => ": internal server error",
-                    _ => "",
-                },
-        )
+    pub fn from(err: ApiError) -> HttpResponse {
+        let prefix = String::from("Error: ");
+
+        let (http_response, description) = match err {
+            ApiError::PasswordInsufficient => (HR::BadRequest, "insufficient password"),
+            ApiError::EmailInUse => (HR::BadRequest, "email in use"),
+            ApiError::UsernameInUse => (HR::BadRequest, "username in use"),
+            ApiError::InvalidUsername => (
+                HR::BadRequest,
+                "username invalid (too short, long or containing invalid characters)",
+            ),
+
+            ApiError::AlreadyPlaying => (HR::BadRequest, "user is already playing"),
+            ApiError::MissingSessionToken => (HR::BadRequest, "missing header session_token"),
+            ApiError::IncorrectCredentials => (HR::BadRequest, "the credentials are incorrect"),
+            ApiError::InternalServerError => (HR::BadRequest, "internal server error"),
+        };
+        http_response().json(ApiResponse::new(prefix + description))
     }
 }
 
@@ -70,6 +73,7 @@ pub enum ApiError {
     InvalidUsername,
     IncorrectCredentials,
     AlreadyPlaying,
+    MissingSessionToken,
     InternalServerError,
 }
 

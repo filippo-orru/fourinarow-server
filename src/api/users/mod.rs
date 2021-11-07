@@ -2,9 +2,7 @@ pub mod session_token;
 pub mod user;
 pub mod user_mgr;
 
-use self::session_token::SessionToken;
-
-use super::{get_session_token, ApiResponse};
+use super::{get_session_token, ApiError, ApiResponse};
 use actix::{Addr, MailboxError};
 use actix_web::*;
 use serde::{Deserialize, Serialize};
@@ -28,19 +26,16 @@ async fn register(
     user_mgr: web::Data<Addr<user_mgr::UserManager>>,
     payload: web::Form<user_mgr::UserAuth>,
 ) -> HttpResponse {
-    if let Ok(session_token_res) = user_mgr
+    match user_mgr
         .send(user_mgr::msg::Register(payload.into_inner()))
         .await
     {
-        match session_token_res {
-            Ok(session_token) => HR::Ok().json(ApiResponse::with_content(
-                "Registration successful.",
-                session_token,
-            )),
-            Err(api_err) => HR::Forbidden().json(ApiResponse::from_api_error(api_err)),
-        }
-    } else {
-        HR::InternalServerError().json(ApiResponse::new("Registration failed. Internal Error."))
+        Ok(Ok(session_token)) => HR::Ok().json(ApiResponse::with_content(
+            "Registration successful.",
+            session_token,
+        )),
+        Ok(Err(api_err)) => ApiResponse::from(api_err),
+        Err(_) => ApiResponse::from(ApiError::InternalServerError),
     }
 }
 
@@ -48,19 +43,16 @@ async fn login(
     user_mgr: web::Data<Addr<user_mgr::UserManager>>,
     payload: web::Form<user_mgr::UserAuth>,
 ) -> HttpResponse {
-    if let Ok(session_token_res) = user_mgr
+    match user_mgr
         .send(user_mgr::msg::Login(payload.into_inner()))
         .await
     {
-        match session_token_res {
-            Ok(session_token) => HR::Ok().json(ApiResponse::with_content(
-                "Login successful.",
-                session_token,
-            )),
-            Err(api_err) => HR::Forbidden().json(ApiResponse::from_api_error(api_err)),
-        }
-    } else {
-        HR::InternalServerError().json(ApiResponse::new("Login failed. Internal Error."))
+        Ok(Ok(session_token)) => HR::Ok().json(ApiResponse::with_content(
+            "Login successful.",
+            session_token,
+        )),
+        Ok(Err(api_err)) => ApiResponse::from(api_err),
+        Err(_) => ApiResponse::from(ApiError::InternalServerError),
     }
 }
 
@@ -68,14 +60,13 @@ async fn logout(
     req: HttpRequest,
     user_mgr: web::Data<Addr<user_mgr::UserManager>>,
 ) -> HttpResponse {
-    if let Some(session_token) = get_session_token(&req) {
-        match user_mgr.send(user_mgr::msg::Logout(session_token)).await {
+    match get_session_token(&req) {
+        Some(session_token) => match user_mgr.send(user_mgr::msg::Logout(session_token)).await {
             Ok(Ok(_)) => HR::Ok().json(ApiResponse::new("Logout successful.")),
-            Ok(Err(api_err)) => HR::Forbidden().json(ApiResponse::from_api_error(api_err)),
-            _ => HR::InternalServerError().json(ApiResponse::new("Logout failed. Internal Error.")),
-        }
-    } else {
-        HR::InternalServerError().json(ApiResponse::new("Logout failed. Internal Error."))
+            Ok(Err(api_err)) => ApiResponse::from(api_err),
+            _ => ApiResponse::from(ApiError::InternalServerError),
+        },
+        None => ApiResponse::from(ApiError::MissingSessionToken),
     }
 }
 
@@ -97,10 +88,9 @@ async fn search_user(
                 query: query.search.clone(),
             })
             .await;
-        if let Ok(Some(users)) = user_res {
-            HR::Ok().json(users)
-        } else {
-            HR::InternalServerError().json(ApiResponse::new("Failed to retrieve users"))
+        match user_res {
+            Ok(Some(users)) => HR::Ok().json(users),
+            _ => HR::InternalServerError().json(ApiResponse::new("Failed to query users")),
         }
     }
 }
@@ -112,31 +102,25 @@ async fn get_user(
     let user_res: Result<Option<user::PublicUserOther>, MailboxError> = user_mgr
         .send(user_mgr::msg::GetUserOther(path.into_inner()))
         .await;
-    if let Ok(Some(user)) = user_res {
-        HR::Ok().json(user)
-    } else {
-        HR::InternalServerError().json(ApiResponse::new("Failed to retrieve users"))
+    match user_res {
+        Ok(Some(user)) => HR::Ok().json(user),
+        _ => HR::InternalServerError().json(ApiResponse::new("Failed to get user")),
     }
 }
 
 async fn me(req: HttpRequest, user_mgr: web::Data<Addr<user_mgr::UserManager>>) -> HR {
-    if let Some(Ok(session_token)) = req.headers().get("session_token").map(|a| a.to_str()) {
-        let user_res: Result<Option<user::PublicUserMe>, MailboxError> = user_mgr
-            .send(user_mgr::msg::GetUserMe(SessionToken::parse(session_token)))
-            .await;
-        if let Ok(maybe_user) = user_res {
-            if let Some(user) = maybe_user {
-                HR::Ok().json(user)
-            } else {
-                HR::Forbidden().json(ApiResponse::new(
-                    "Could not find user. Invalid credentials.",
-                ))
-            }
-        } else {
-            HR::InternalServerError().json(ApiResponse::new("Failed to retrieve user"))
+    if let Some(session_token) = get_session_token(&req) {
+        let user_res: Result<Option<user::PublicUserMe>, MailboxError> =
+            user_mgr.send(user_mgr::msg::GetUserMe(session_token)).await;
+        match user_res {
+            Ok(Some(user)) => HR::Ok().json(user),
+            Ok(None) => HR::Forbidden().json(ApiResponse::new(
+                "Could not find user. Invalid credentials.",
+            )),
+            Err(_) => HR::InternalServerError().json(ApiResponse::new("Failed to retrieve user")),
         }
     } else {
-        HR::Forbidden().json(ApiResponse::new("Missing auth header"))
+        HR::Unauthorized().json(ApiResponse::new("Missing session_token"))
     }
 }
 
@@ -217,7 +201,7 @@ mod friends {
                 HR::InternalServerError().json(ApiResponse::new("Failed to retrieve user"))
             }
         } else {
-            HR::Unauthorized().finish()
+            HR::Unauthorized().json(ApiResponse::new("Missing session_token"))
         }
     }
 }
