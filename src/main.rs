@@ -84,8 +84,8 @@ async fn start_server(bind_addr: &str) -> io::Result<()> {
                         Cors::default()
                             .allowed_methods(vec!["GET", "POST", "DELETE"])
                             .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
-                            .allowed_origin("*.fourinarow.ml")
-                            .allowed_origin("fourinarow.ml")
+                            .allowed_origin("*.fourinarow.ffactory.me")
+                            .allowed_origin("fourinarow.ffactory.me")
                             .allowed_origin("localhost")
                             .max_age(3600),
                     )

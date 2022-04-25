@@ -15,3 +15,4 @@ push_build_restart.bat
 
 # contains credentials
 .env
+.DS_Store
