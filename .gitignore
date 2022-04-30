@@ -13,6 +13,10 @@ data/*
 build.sh
 push_build_restart.bat
 
-# contains credentials
+# Contains credentials
 .env
+
 .DS_Store
+
+# Profiling
+flamegraph.svg
