@@ -82,11 +82,10 @@ async fn start_server(bind_addr: &str) -> io::Result<()> {
                 web::scope("/api")
                     .wrap(
                         Cors::default()
-                            .allowed_methods(vec!["GET", "POST", "DELETE"])
-                            .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT])
                             .allowed_origin("https://play.fourinarow.ffactory.me")
-                            .allowed_origin("https://fourinarow.ffactory.me")
                             .allowed_origin("localhost")
+                            .allowed_methods(vec!["GET", "POST", "DELETE"])
+                            .allow_any_header()
                             .max_age(3600),
                     )
                     .configure(api::config),
