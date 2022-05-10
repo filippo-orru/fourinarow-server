@@ -157,11 +157,18 @@ pub mod msg {
                         .get_session_token(msg.session_token, &db.friendships)
                         .await
                     {
-                        let client_adapter_addr_to_close = user.playing.clone().and_then(|addr| {
-                            // Close other client's connection due to a new one logging in
-                            addr.do_send(ServerMessage::CloseOtherClientLogin);
-                            Some(addr)
-                        });
+                        let client_adapter_addr_to_close = if let Some(addr) = user.playing.clone()
+                        {
+                            if addr != msg.addr {
+                                // Close other client's connection due to a new one logging in
+                                addr.do_send(ServerMessage::CloseOtherClientLogin);
+                                Some(addr)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
                         let mut user = user;
                         user.playing = Some(msg.addr);
                         db.users.update(user.clone()).await;
