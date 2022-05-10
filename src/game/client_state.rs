@@ -311,7 +311,7 @@ impl Handler<PlayerMessage> for ClientState {
                             if let Ok(maybe_id) = res {
                                 match maybe_id {
                                     Ok(user) => {
-                                        println!("Start playing! user: {:?}", user);
+                                        // println!("Start playing! user: {:?}", user);
                                         act.maybe_user_info = Some(user);
                                         client_adapter_addr.do_send(ServerMessage::LoginResponse {
                                             success: true,

@@ -9,7 +9,6 @@ use std::sync::Arc;
 use actix::Actor;
 use actix_cors::Cors;
 use actix_files as fs;
-use actix_web::http::header;
 use actix_web::{middleware, web, App, HttpResponse, HttpServer};
 
 use api::users::user_mgr::UserManager;

@@ -41,6 +41,8 @@ pub struct UserAuth {
 
 pub mod msg {
 
+    use std::time::Duration;
+
     use futures::future::OptionFuture;
 
     use super::*;
@@ -140,6 +142,10 @@ pub mod msg {
     impl Message for StartPlaying {
         type Result = Result<PublicUserMe, ()>;
     }
+    struct StartPlayingIntermediate {
+        result: Result<PublicUserMe, ()>,
+        client_adapter_addr_to_close: Option<Addr<ClientState>>,
+    }
     impl Handler<StartPlaying> for UserManager {
         type Result = ResponseActFuture<Self, Result<PublicUserMe, ()>>;
         fn handle(&mut self, msg: StartPlaying, _ctx: &mut Self::Context) -> Self::Result {
@@ -151,19 +157,34 @@ pub mod msg {
                         .get_session_token(msg.session_token, &db.friendships)
                         .await
                     {
+                        let client_adapter_addr_to_close = user.playing.clone().and_then(|addr| {
+                            // Close other client's connection due to a new one logging in
+                            addr.do_send(ServerMessage::CloseOtherClientLogin);
+                            Some(addr)
+                        });
                         let mut user = user;
-                        if let Some(client_adapter) = user.playing {
-                            // Cancel current connection
-                            client_adapter.do_send(ClientAdapterMsg::Close);
-                        }
                         user.playing = Some(msg.addr);
                         db.users.update(user.clone()).await;
-                        Ok(user.to_public_user_me(&db).await)
+                        StartPlayingIntermediate {
+                            result: Ok(user.to_public_user_me(&db).await),
+                            client_adapter_addr_to_close,
+                        }
                     } else {
-                        Err(())
+                        StartPlayingIntermediate {
+                            result: Err(()),
+                            client_adapter_addr_to_close: None,
+                        }
                     }
                 }
-                .into_actor(self),
+                .into_actor(self)
+                .map(|res, _act, ctx| {
+                    if let Some(addr) = res.client_adapter_addr_to_close {
+                        ctx.run_later(Duration::from_millis(100), move |_, _| {
+                            addr.do_send(ClientAdapterMsg::Close);
+                        });
+                    }
+                    res.result
+                }),
             )
         }
     }

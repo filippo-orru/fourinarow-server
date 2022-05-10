@@ -71,11 +71,13 @@ impl ReliablePacketOut {
         }
     }
 }
+
 #[derive(Debug, Clone)]
 pub enum ReliabilityError {
     InvalidContent, // Message content could not be parsed
     InvalidFormat,  // ReliableMessage could not be parsed
     UnknownMessage, // Correct format but unknown keyword (ack, syn, msg)
+    #[allow(dead_code)]
     KillClient,     // Sent in case client is fucking up bad. Kills it immediately.
 }
 impl ReliabilityError {
@@ -164,6 +166,9 @@ pub enum ServerMessage {
     CurrentServerState(usize, bool), // connected players, someone wants to play
     ChatMessage(bool, String, Option<String>), // is_global, message, sender_name
     ChatRead(bool),                  // is_global
+    
+    /// Sent when another client logs into an account which is authenticated on this connection -> this one is closed
+    CloseOtherClientLogin,
 }
 
 impl ServerMessage {
@@ -210,6 +215,7 @@ impl ServerMessage {
                 format!("CHAT_MSG:{}:{}:{}", is_global, encoded_message, sender_name)
             }
             ChatRead(is_global) => format!("CHAT_READ:{}", is_global),
+            CloseOtherClientLogin => "CLOSE_OTHER_CLIENT_LOGIN".to_owned(),
         }
     }
 }

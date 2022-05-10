@@ -324,16 +324,13 @@ impl Handler<ClientAdapterMsg> for ClientAdapter {
         // print!("ClientAdapter recv ClientAdapterMsg: ");
         match msg {
             ClientAdapterMsg::Connect(client_connection_addr) => {
-                // println!("Connect");
                 self.client_connection =
                     ClientConnectionConnectionState::Connected(client_connection_addr);
             }
             ClientAdapterMsg::Disconnect => {
-                // println!("Disconnect");
                 self.client_connection = ClientConnectionConnectionState::Disconnected;
             }
             ClientAdapterMsg::Close => {
-                // println!("Close");
                 ctx.stop();
             }
         }
