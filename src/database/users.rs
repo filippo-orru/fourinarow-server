@@ -26,7 +26,7 @@ pub struct UserCollection {
 impl UserCollection {
     pub fn new(db: &Database) -> Self {
         UserCollection {
-            collection: db.collection_with_type("users"),
+            collection: db.collection("users"),
             playing_users_cache: DashMap::new(),
         }
     }

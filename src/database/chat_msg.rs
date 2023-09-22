@@ -25,7 +25,7 @@ struct DbChatMsg {
 impl ChatMsgCollection {
     pub fn new(db: &Database) -> Self {
         ChatMsgCollection {
-            collection: db.collection_with_type("chat_messages"),
+            collection: db.collection("chat_messages"),
         }
     }
 
