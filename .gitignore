@@ -20,3 +20,6 @@ push_build_restart.bat
 
 # Profiling
 flamegraph.svg
+
+# Mongodb data
+db/*

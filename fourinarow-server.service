@@ -1,0 +1,13 @@
+[Unit]
+Description=Four in a Row Server
+After=docker.service
+Requires=docker.service
+
+[Service]
+WorkingDirectory=/home/ffactory/fourinarow-server
+ExecStart=/usr/bin/docker compose up --build --remove-orphans
+ExecStop=/usr/bin/docker compose down
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

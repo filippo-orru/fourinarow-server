@@ -27,11 +27,11 @@ async fn main() {
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", "actix_web=info");
     }
-    let args: Vec<String> = std::env::args().collect();
-    let bind_addr = if let Some(addr) = args.get(1) {
+
+    let bind_addr = if let Some(addr) = std::env::var("BIND").ok() {
         addr
     } else {
-        DEFAULT_BIND_ADDR
+        DEFAULT_BIND_ADDR.to_string()
     };
 
     env_logger::builder()

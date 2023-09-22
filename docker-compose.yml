@@ -1,0 +1,31 @@
+version: '3'
+
+name: fourinarow-server
+services:
+  server:
+    build: .
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017/fourinarow
+      - BIND=0.0.0.0:8080
+    expose:
+      - 8080
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.fourinarow-server.rule: "Host(`fourinarow.ffactory.me`)"
+      traefik.http.routers.fourinarow-server.entrypoints: "https"
+      traefik.http.services.fourinarow-server.loadbalancer.server.port: "8080"
+    networks:
+      - traefik
+
+  mongodb:
+    image: mongo
+    restart: always
+    expose:
+      - 27017  
+    volumes:
+      - ./db:/data/db
+
+networks:
+  traefik:
+    external: true
+    name: traefik_proxy

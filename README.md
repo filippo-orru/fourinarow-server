@@ -34,3 +34,36 @@ Or play online (beta): https://play.fourinarow.ffactory.me/
 ![Screenshot of play selection](screenshots/2.png)
 
 ![Screenshot of play](screenshots/3.png)
+
+# Deployment
+
+## Prerequisites
+
+Before getting started, make sure you have Docker with Docker Compose installed on your machine.
+
+1. Set up reverse proxy with traefik: https://github.com/ffactory-ofcl/vps-reverse-proxy. Follow instructions there.
+
+1. Create a deploy key using [this script](https://gist.github.com/ffactory-ofcl/a4dcfc7a68c0b8d35487aa8297e98128) and add it to the Github repository.
+
+1. Clone this repository using the command echoed by the script.
+
+1. Copy the `.env_template` file to `.env` and fill in the values.
+
+    ```bash
+    cp .env_template .env
+    ```
+    
+1. Create a systemd service file:
+
+    ```bash
+    sudo cp fourinarow-server.service /etc/systemd/system/
+    sudo systemctl daemon-reload
+    sudo systemctl enable fourinarow-server
+    sudo systemctl start fourinarow-server
+    ```
+
+1. Check the status:
+    
+    ```bash
+    sudo systemctl status fourinarow-server
+    ```
