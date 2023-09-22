@@ -41,6 +41,8 @@ Or play online (beta): https://play.fourinarow.ffactory.me/
 
 Before getting started, make sure you have Docker with Docker Compose installed on your machine.
 
+## Deploy
+
 1. Set up reverse proxy with traefik: https://github.com/ffactory-ofcl/vps-reverse-proxy. Follow instructions there.
 
 1. Create a deploy key using [this script](https://gist.github.com/ffactory-ofcl/a4dcfc7a68c0b8d35487aa8297e98128) and add it to the Github repository.
@@ -51,6 +53,7 @@ Before getting started, make sure you have Docker with Docker Compose installed 
 
     ```bash
     cp .env_template .env
+    nano .env
     ```
     
 1. Create a systemd service file:
