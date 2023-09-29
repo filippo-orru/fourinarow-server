@@ -5,7 +5,7 @@ services:
   server:
     build: .
     environment:
-      - MONGO_URL=mongodb://mongodb:27017/fourinarow
+      - MONGO_URL=mongodb://mongodb:27017/
       - BIND=0.0.0.0:8080
     expose:
       - 8080
@@ -15,6 +15,7 @@ services:
       traefik.http.routers.fourinarow-server.entrypoints: "https"
       traefik.http.services.fourinarow-server.loadbalancer.server.port: "8080"
     networks:
+      - default
       - traefik
 
   mongodb:

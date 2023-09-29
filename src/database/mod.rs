@@ -10,7 +10,7 @@ use self::{
     users::UserCollection,
 };
 
-const DB_URL: &str = "mongodb://localhost:27017";
+const MONGO_URL_DEFAULT: &str = "mongodb://localhost:27017";
 
 pub struct DatabaseManager {
     pub users: UserCollection,
@@ -21,7 +21,9 @@ pub struct DatabaseManager {
 
 impl DatabaseManager {
     pub async fn new() -> DatabaseManager {
-        let opt = ClientOptions::parse(DB_URL).await.unwrap();
+        let url = std::env::var("MONGO_URL").unwrap_or(MONGO_URL_DEFAULT.to_string());
+        println!("Connecting to mongodb at '{}'", url);
+        let opt = ClientOptions::parse(&url).await.unwrap();
         let client = Client::with_options(opt).expect("Failed to start mongodb client");
         let db = client.database("fourinarow");
 
