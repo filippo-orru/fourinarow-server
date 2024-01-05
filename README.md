@@ -9,11 +9,11 @@ An **online** version of the popular game **four in a row**, written in Rust on 
 Or play online (beta): https://play.fourinarow.ffactory.me/
 
 ## Related Projects:
-- Clientside: [fourinarow-app](https://github.com/ffactory-ofcl/fourinarow-app)
+- Clientside: [fourinarow-app](https://github.com/filippo-orru/fourinarow-app)
 
-- Serverside: [fourinarow-server](https://github.com/ffactory-ofcl/fourinarow-server)
+- Serverside: [fourinarow-server](https://github.com/filippo-orru/fourinarow-server)
 
-- \[WIP\] bot / watcher: [fourinarow-bot](https://github.com/ffactory-ofcl/fourinarow-bot)
+- \[WIP\] bot / watcher: [fourinarow-bot](https://github.com/filippo-orru/fourinarow-bot)
 
 ## Features:
 - world wide online play
@@ -43,9 +43,9 @@ Before getting started, make sure you have Docker with Docker Compose installed 
 
 ## Deploy
 
-1. Set up reverse proxy with traefik: https://github.com/ffactory-ofcl/vps-reverse-proxy. Follow instructions there.
+1. Set up reverse proxy with traefik: https://github.com/filippo-orru/vps-reverse-proxy. Follow instructions there.
 
-1. Create a deploy key using [this script](https://gist.github.com/ffactory-ofcl/a4dcfc7a68c0b8d35487aa8297e98128) and add it to the Github repository.
+1. Create a deploy key using [this script](https://gist.github.com/filippo-orru/a4dcfc7a68c0b8d35487aa8297e98128) and add it to the Github repository.
 
 1. Clone this repository using the command echoed by the script.
 

@@ -90,6 +90,11 @@ async fn start_server(bind_addr: &str) -> io::Result<()> {
                     .configure(api::config),
             )
             .service(web::scope("/game").configure(|cfg| game::config(cfg)))
+            .service(web::resource("/privacy").to(|| {
+                HttpResponse::Found()
+                    .header("LOCATION", "/privacy.html")
+                    .finish()
+            }))
             .service(fs::Files::new("/", "static/").default_handler(web::to(|| {
                 HttpResponse::Found()
                     .header("LOCATION", "/404.html")
