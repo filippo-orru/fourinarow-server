@@ -4,15 +4,176 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Four in a Row</title>
+    <title>Four in a Row Game</title>
+    <!-- Link to Google Font - Roboto -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    
+    <link rel="shortcut icon" href="./img/favicon.png" type="image/x-icon">
+    <link rel="icon" href="./img/favicon.png" type="image/x-icon">
+    <link rel="apple-touch-icon" href="./img/favicon.png">
+    
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Roboto', sans-serif;
+            background-color: #ffffff;
+            color: #000000;
+
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Reset some default styles */
+        body,
+        h1,
+        h2,
+        p,
+        ul,
+        button {
+            padding: 0;
+        }
+
+        a {
+            color: #2196F3;
+        }
+
+        /* Main content */
+        .wrapper {
+            width: 100%;
+            max-width: 800px;
+            padding: 0 20px;
+            margin: 0 auto;
+
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: auto;
+            padding-top: 32px;
+        }
+
+        footer.separator {
+            margin: 0 12px;
+        }
+
+        section.header {
+            margin-bottom: 20px;
+            text-align: center;
+            margin: 64px 0;
+        }
+
+        section.header img {
+            width: 100%;
+            max-width: 550px;
+        }
+
+        /* Features section styles */
+        section.features {
+            text-align: left;
+            margin-bottom: 32px;
+
+            padding: 24px 32px;
+            border: #77bbf3 2px solid;
+            border-radius: 8px;
+            background-color: #e3f1fd;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        li {
+            margin-bottom: 10px;
+        }
+
+        /* Button styles */
+        a.cta {
+            background-color: #2196F3;
+            /* Blue accent color */
+            color: #ffffff;
+            /* White text */
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            display: inline-block;
+            text-decoration: none;
+        }
+
+        /* Screenshots section styles */
+        section.videos {
+            display: flex;
+            justify-content: center;
+            height: 400px;
+            gap: 32px;
+            width: 100%;
+        }
+
+        @media screen and (max-width: 600px) {
+            section.videos {
+                flex-direction: column;
+                align-items: center;
+                height: auto;
+            }
+            .video {
+                width: 70%;
+            }
+            .video video {
+                height: auto;
+                width: 100%;
+            }
+        }
+
+        .video video {
+            height: 100%;
+            border-radius: 12px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+    </style>
 </head>
 
 <body>
-    <h1>Hello</h1>
-    <p>This page is currently in development. Check back later to maybe find more content.</p>
-    <p>Thanks for your patience. In the meantime, contact me at <strong>ffactory (at) outlook (dot) de</strong></p>
-    <a href="/privacy.html">Privacy Policy</a>
-    <a href="/terms.html">Terms and Conditions</a>
+    <div class="wrapper">
+        <section class="header">
+            <img src="./img/logo.png" alt="Four in a Row Logo">
+            <!-- One-line description -->
+            <p>The all-time classic with a modern look and online play.</p>
+            <a class="cta" href="https://play.fourinarow.ffactory.me/">→ Try it out now!</a>
+        </section>
+
+        <section class="features">
+            <ul>
+                <li>Play online, locally, and against the CPU.</li>
+                <li>Create an account, battle friends, and earn ranked points.</li>
+                <li>Minimalist design, easy & fun to play.</li>
+            </ul>
+        </section>
+
+        <section class="videos">
+            <div class="video">
+                <video src="./img/showcase-1.mp4" alt="Video 1" autoplay muted playsinline loop />
+            </div>
+            <div class="video">
+                <video src="./img/showcase-2.mp4" alt="Video 1" autoplay muted playsinline loop />
+            </div>
+            <div class="video">
+                <video src="./img/showcase-3.mp4" alt="Video 1" autoplay muted playsinline loop />
+            </div>
+        </section>
+    </div>
+
+    <footer>
+        <a href="/privacy.html">Privacy Policy</a>
+        <span class="separator">•</span>
+        <a href="/terms.html">Terms and Conditions</a>
+        <p>You can contact me at ffactory (at) outlook (dot) de</p>
+    </footer>
 </body>
 
 </html>
