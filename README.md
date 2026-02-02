@@ -6,8 +6,6 @@ An **online** version of the popular game **four in a row**, written in Rust on 
 
 ***Download here: https://play.google.com/store/apps/details?id=ml.fourinarow***
 
-Or play online (beta): https://play.fourinarow.ffactory.me/
-
 ## Related Projects:
 - Clientside: [fourinarow-app](https://github.com/filippo-orru/fourinarow-app)
 
