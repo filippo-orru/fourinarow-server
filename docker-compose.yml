@@ -19,8 +19,8 @@ services:
       - traefik
 
   mongodb:
-    image: mongo
-    restart: always
+    image: mongo:7
+    restart: unless-stopped
     expose:
       - 27017  
     volumes:
