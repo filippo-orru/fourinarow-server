@@ -9,6 +9,10 @@ services:
       - BIND=0.0.0.0:8080
     expose:
       - 8080
+    depends_on:
+      mongodb:
+        condition: service_started
+    restart: unless-stopped
     labels:
       traefik.enable: "true"
       traefik.http.routers.fourinarow-server.rule: "Host(`fourinarow.ffactory.me`)"
